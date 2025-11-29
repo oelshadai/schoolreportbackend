@@ -207,9 +207,6 @@ CORS_ALLOW_METHODS = [
 # CORS preflight cache
 CORS_PREFLIGHT_MAX_AGE = 86400
 
-# Ensure CORS headers are always sent
-CORS_REPLACE_HTTPS_REFERER = True
-
 # In development, allow any origin
 if DEBUG:
     ALLOWED_HOSTS.extend(['*'])
