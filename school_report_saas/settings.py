@@ -173,6 +173,7 @@ CORS_ALLOWED_ORIGINS = list({
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
     'http://127.0.0.1:3002',
+    'https://elitetechreport.netlify.app',  # Production frontend
     # Add Netlify URL when deployed
 })
 
