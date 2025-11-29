@@ -95,8 +95,12 @@ class TeacherViewSet(viewsets.ModelViewSet):
             # Set school from user's school
             teacher = serializer.save(school=request.user.school)
             
+            # Prepare response with teacher data
+            response_data = TeacherSerializer(teacher).data
+            response_data['message'] = f"Teacher {teacher.get_full_name()} created successfully! Welcome email with login credentials has been sent to {teacher.user.email}."
+            
             return Response(
-                TeacherSerializer(teacher).data, 
+                response_data, 
                 status=status.HTTP_201_CREATED
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

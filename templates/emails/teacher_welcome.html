@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to {{ school.name }}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        .content {
+            background: #f8fafc;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .credentials-box {
+            background: #fff;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .assignment-section {
+            background: #fff;
+            border-left: 4px solid #22c55e;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        .login-button {
+            display: inline-block;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white !important;
+            padding: 15px 30px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .footer {
+            text-align: center;
+            color: #64748b;
+            font-size: 14px;
+            padding: 20px;
+            border-top: 1px solid #e2e8f0;
+            margin-top: 30px;
+        }
+        .highlight {
+            background-color: #fef3c7;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎓 Welcome to {{ school.name }}!</h1>
+        <p>Your teacher account has been successfully created</p>
+    </div>
+    
+    <div class="content">
+        <h2>Hello {{ teacher.user.first_name }} {{ teacher.user.last_name }},</h2>
+        
+        <p>Welcome to the teaching team at <strong>{{ school.name }}</strong>! We're excited to have you join us. Your teacher account has been successfully created and you can now access the school management system.</p>
+        
+        <div class="credentials-box">
+            <h3>🔑 Your Login Credentials</h3>
+            <p><strong>Email:</strong> <span class="highlight">{{ email }}</span></p>
+            <p><strong>Password:</strong> <span class="highlight">{{ password }}</span></p>
+            <p><strong>Employee ID:</strong> <span class="highlight">{{ teacher.employee_id }}</span></p>
+            
+            <p><em>⚠️ Please change your password after first login for security purposes.</em></p>
+        </div>
+        
+        {% if assigned_class %}
+        <div class="assignment-section">
+            <h3>🏫 Form/Class Teacher Assignment</h3>
+            <p>You have been assigned as the <strong>Form Teacher</strong> for:</p>
+            <ul>
+                <li><strong>Class:</strong> {{ assigned_class.level_display|default:assigned_class.level }}{% if assigned_class.section %} {{ assigned_class.section }}{% endif %}</li>
+                <li><strong>Students:</strong> Manage class attendance, behavior, and overall class coordination</li>
+            </ul>
+        </div>
+        {% endif %}
+        
+        {% if subjects %}
+        <div class="assignment-section">
+            <h3>📚 Subject Specializations</h3>
+            <p>Your subject teaching specializations include:</p>
+            <ul>
+                {% for subject in subjects %}
+                <li><strong>{{ subject.name }}</strong>{% if subject.description %} - {{ subject.description }}{% endif %}</li>
+                {% endfor %}
+            </ul>
+            <p><em>You may be assigned to teach these subjects across different classes.</em></p>
+        </div>
+        {% endif %}
+        
+        <h3>🚀 Getting Started</h3>
+        <p>Here's what you can do with your account:</p>
+        <ul>
+            <li>📊 View your class and subject assignments</li>
+            <li>👥 Access student information and records</li>
+            <li>📝 Enter and manage student scores</li>
+            <li>📋 Generate student reports and progress tracking</li>
+            <li>👤 Update your profile and contact information</li>
+        </ul>
+        
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="{{ login_url }}" class="login-button">🌟 Login to Your Account</a>
+        </div>
+        
+        <h3>📞 Need Help?</h3>
+        <p>If you have any questions or need assistance, please contact:</p>
+        <ul>
+            <li><strong>School Administration:</strong> {{ school.email|default:"Contact your school admin" }}</li>
+            <li><strong>Phone:</strong> {{ school.phone|default:"Contact your school admin" }}</li>
+        </ul>
+    </div>
+    
+    <div class="footer">
+        <p>This email was sent from {{ school.name }} School Management System</p>
+        <p>Please keep your login credentials secure and do not share them with others.</p>
+    </div>
+</body>
+</html>

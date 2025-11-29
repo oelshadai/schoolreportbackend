@@ -3,8 +3,12 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from .models import Teacher
 from schools.serializers import SubjectSerializer
+from schools.models import Class
+from .email_utils import send_teacher_welcome_email
+import logging
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 class TeacherSerializer(serializers.ModelSerializer):
@@ -43,13 +47,16 @@ class TeacherCreateSerializer(serializers.ModelSerializer):
     phone_number = serializers.CharField(max_length=15, required=False, allow_blank=True)
     password = serializers.CharField(write_only=True, min_length=6)
     
+    # Optional class assignment
+    class_id = serializers.IntegerField(required=False, allow_null=True)
+    
     class Meta:
         model = Teacher
         fields = [
             'employee_id', 'first_name', 'last_name', 'email', 
             'phone_number', 'password', 'hire_date', 'qualification', 
             'experience_years', 'emergency_contact', 'address', 
-            'specializations'
+            'specializations', 'class_id'
         ]
     
     def validate_email(self, value):
@@ -65,10 +72,26 @@ class TeacherCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A teacher with this employee ID already exists in your school.")
         return value
     
+    def validate_class_id(self, value):
+        """Validate class assignment belongs to the same school"""
+        if value:
+            school = self.context['request'].user.school
+            try:
+                class_instance = Class.objects.get(id=value, school=school)
+                # Check if class already has a class teacher
+                if class_instance.class_teacher:
+                    raise serializers.ValidationError(f"Class {class_instance} already has a class teacher assigned.")
+            except Class.DoesNotExist:
+                raise serializers.ValidationError("Invalid class selection.")
+        return value
+    
     @transaction.atomic
     def create(self, validated_data):
-        """Create user account and teacher profile"""
+        """Create user account and teacher profile with optional class assignment"""
         # Extract user fields
+        class_id = validated_data.pop('class_id', None)
+        password = validated_data['password']  # Store password for email
+        
         user_data = {
             'first_name': validated_data.pop('first_name'),
             'last_name': validated_data.pop('last_name'),
@@ -94,5 +117,31 @@ class TeacherCreateSerializer(serializers.ModelSerializer):
         specializations = validated_data.pop('specializations', [])
         teacher = Teacher.objects.create(user=user, **validated_data)
         teacher.specializations.set(specializations)
+        
+        # Assign class if provided
+        assigned_class = None
+        if class_id:
+            try:
+                assigned_class = Class.objects.get(id=class_id, school=user.school)
+                assigned_class.class_teacher = user
+                assigned_class.save()
+                logger.info(f"Assigned teacher {user.email} as class teacher for {assigned_class}")
+            except Class.DoesNotExist:
+                logger.warning(f"Class with id {class_id} not found for teacher {user.email}")
+        
+        # Send welcome email with login credentials and assignments
+        try:
+            email_sent = send_teacher_welcome_email(
+                teacher=teacher,
+                password=password,
+                assigned_class=assigned_class,
+                subjects=list(specializations)
+            )
+            if email_sent:
+                logger.info(f"Welcome email sent successfully to {user.email}")
+            else:
+                logger.warning(f"Failed to send welcome email to {user.email}")
+        except Exception as e:
+            logger.error(f"Error sending welcome email to {user.email}: {str(e)}")
         
         return teacher
