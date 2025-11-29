@@ -17,11 +17,10 @@ gunicorn==21.2.0
 # Static files
 whitenoise==6.6.0
 
-# Optional features (enabled for PDFs/QR; comment out if your Python version lacks wheels)
-# openpyxl==3.1.2
-Pillow==10.1.0
+# Optional features (compatible versions)
+Pillow==10.4.0
 qrcode==7.4.2
-reportlab==4.0.7
+reportlab==4.2.5
 
 # Utilities
 python-decouple==3.8
