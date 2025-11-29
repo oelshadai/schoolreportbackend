@@ -43,9 +43,9 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -167,6 +167,7 @@ SIMPLE_JWT = {
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
+# Explicit origins for production
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://localhost:3001', 
@@ -178,6 +179,7 @@ CORS_ALLOWED_ORIGINS = [
     'https://692b1d9d5e97e061d183dbc2--elitetechreport.netlify.app',
 ]
 
+# Explicit CORS headers
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding', 
@@ -191,6 +193,7 @@ CORS_ALLOW_HEADERS = [
     'access-control-allow-origin',
 ]
 
+# Explicit CORS methods
 CORS_ALLOW_METHODS = [
     'DELETE',
     'GET', 
@@ -200,7 +203,11 @@ CORS_ALLOW_METHODS = [
     'PUT',
 ]
 
+# CORS preflight cache
 CORS_PREFLIGHT_MAX_AGE = 86400
+
+# Ensure CORS headers are always sent
+CORS_REPLACE_HTTPS_REFERER = True
 
 # In development, allow any origin
 if DEBUG:

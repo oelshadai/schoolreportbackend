@@ -27,8 +27,26 @@ def api_root(request):
         'status': 'running'
     })
 
+@csrf_exempt
+def cors_test(request):
+    """CORS test endpoint to verify headers"""
+    response = JsonResponse({
+        'message': 'CORS test successful',
+        'origin': request.META.get('HTTP_ORIGIN', 'No origin header'),
+        'method': request.method,
+        'headers': dict(request.headers),
+    })
+    
+    # Manually add CORS headers for testing
+    response['Access-Control-Allow-Origin'] = '*'
+    response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    
+    return response
+
 urlpatterns = [
     path('', api_root, name='api_root'),
+    path('cors-test/', cors_test, name='cors_test'),
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
     path('api/schools/', include('schools.urls')),
