@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Report Card Preview - {{ school.name }}</title>
+    <style>
+        /* Mobile-first baseline */
+        html { box-sizing: border-box; }
+        *, *:before, *:after { box-sizing: inherit; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background-color: #f5f5f5;
+            font-size: 14px;
+            line-height: 1.4;
+            -webkit-text-size-adjust: 100%;
+        }
+        .page-wrap {
+            padding: 12px;
+        }
+        .preview-container {
+            width: 100%;
+            max-width: 210mm;
+            margin: 0 auto;
+            background: white;
+            padding: 16px;
+            box-shadow: 0 10px 24px rgba(0,0,0,0.08);
+            border-radius: 12px;
+            border: 2px solid #000;
+        }
+        .preview-header {
+            background: #0b0b0b;
+            color: white;
+            padding: 16px;
+            margin: -16px -16px 16px -16px;
+            border-radius: 12px 12px 0 0;
+            text-align: center;
+        }
+        .preview-header h1 {
+            margin: 0;
+            font-size: 20px;
+        }
+        .preview-note {
+            background: #fff3cd;
+            border: 1px solid #f59e0b;
+            padding: 10px 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            text-align: center;
+            color: #92400e;
+            font-size: 13px;
+        }
+        .report-main-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            border: 2px solid #000;
+            padding: 12px 18px;
+            text-align: center;
+            position: relative;
+        }
+        .school-logo {
+            width: 72px;
+            height: 72px;
+            border: 2px solid #000;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            background: #fff;
+            overflow: hidden;
+        }
+        .school-logo img {width:100%;height:100%;object-fit:contain;}
+        .watermark-wrapper {position: relative;}
+        .watermark {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 70%;
+            height: 380px;
+            opacity: 0.07;
+            pointer-events: none;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect x="95" y="10" width="10" height="180" fill="%23000"/><rect x="10" y="95" width="180" height="10" fill="%23000"/><circle cx="100" cy="100" r="85" fill="none" stroke="%23000" stroke-width="6"/></svg>') center/contain no-repeat;
+        }
+        .header-center {
+            text-align: center;
+            flex: 1;
+            margin: 0 20px;
+        }
+        .header-center h1 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: bold;
+            text-transform: uppercase;
+            line-height: 1.2;
+            margin-bottom: 5px;
+        }
+        .header-center h2 {
+            margin: 8px 0;
+            font-size: 16px;
+            font-weight: bold;
+            text-transform: uppercase;
+            color: #000;
+        }
+        .header-center p {
+            margin: 3px 0;
+            font-size: 11px;
+            text-align: center;
+        }
+        .terminal-report-header {
+            background: #000;
+            color: white;
+            text-align: center;
+            padding: 10px;
+            margin: 12px 0;
+            font-weight: bold;
+            font-size: 14px;
+            text-transform: uppercase;
+            border-radius: 6px;
+        }
+        .student-info {
+            margin: 15px 0;
+            line-height: 1.8;
+        }
+        .student-info-row {
+            margin: 8px 0;
+            font-size: 11px;
+        }
+        .info-label {
+            display: inline-block;
+            min-width: 120px;
+            font-weight: normal;
+        }
+        .table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border: 1px solid #000;
+            border-radius: 8px;
+            margin: 12px 0;
+        }
+        .scores-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            min-width: 560px; /* keep columns readable on phones */
+        }
+        .scores-table th,
+        .scores-table td {
+            border: 1px solid #000;
+            padding: 6px 4px;
+            text-align: center;
+        }
+        .scores-table th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+            font-size: 11px;
+        }
+        .scores-table .subject-name {
+            text-align: left;
+            padding-left: 8px;
+        }
+        .attendance-conduct {
+            margin: 15px 0;
+            font-size: 11px;
+            line-height: 2;
+        }
+        .conduct-section {
+            margin: 15px 0;
+        }
+        .conduct-section h4 {
+            margin: 10px 0 5px 0;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .dotted-line {
+            border-bottom: 1px dotted #000;
+            height: 20px;
+            margin: 5px 0;
+        }
+        .remarks-section {
+            margin: 20px 0;
+        }
+        /* Mobile adjustments */
+        @media (max-width: 680px) {
+            .preview-container { padding: 12px; }
+            .preview-header h1 { font-size: 18px; }
+            .report-main-header {
+                flex-direction: column;
+                gap: 8px;
+                text-align: center;
+            }
+            .header-center { margin: 0; }
+            .header-center h1 { font-size: 16px; }
+            .header-center h2 { font-size: 16px; }
+            .header-center p { font-size: 11px; }
+            .student-info { font-size: 12px; }
+            .student-info-row { display: grid; grid-template-columns: 1fr; gap: 6px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-wrap">
+    <div class="preview-container">
+        <div class="preview-header">
+            <h1>📄 Report Template Preview</h1>
+            <p>This is how your reports will look with current settings</p>
+        </div>
+        
+        <div class="preview-note">
+            <strong>Preview Mode:</strong> This shows sample data to demonstrate your report template design. 
+            Actual reports will use real student data.
+        </div>
+
+        <!-- Report Content -->
+        <!-- Ghana Education Service Style Header -->
+        <div class="report-main-header">
+            <div class="school-logo">
+                {% if school.logo %}
+                    <img src="{{ school.logo.url }}" alt="School Logo">
+                {% else %}LOGO{% endif %}
+            </div>
+            <div class="header-center">
+                <h1>GHANA EDUCATION SERVICE</h1>
+                <h2 style="font-size: 20px; margin: 6px 0; font-weight: bold; letter-spacing:0.5px;">{{ school.name|upper }}</h2>
+                {% if school.motto %}<p style="font-style:italic;font-size:11px;margin:2px 0 4px;">{{ school.motto }}</p>{% endif %}
+                <p>
+                    {% if school.address %}{{ school.address }}{% endif %}
+                    {% if school.phone_number %} | +{{ school.phone_number }}{% endif %}
+                </p>
+                {% if school.email %}<p>Email: <a href="mailto:{{ school.email }}" style="color:#000;text-decoration:none;">{{ school.email }}</a></p>{% endif %}
+            </div>
+            <div class="school-logo">
+                {% if school.logo %}
+                    <img src="{{ school.logo.url }}" alt="School Logo">
+                {% else %}LOGO{% endif %}
+            </div>
+        </div>
+        
+        <div class="terminal-report-header">
+            TERMINAL REPORT SHEET
+        </div>
+
+        <div class="student-info">
+            <div class="student-info-row">
+                <span class="info-label">NAME:................................................................</span>
+                <span style="margin-left: 50px;">CLASS: BASIC........</span>
+            </div>
+            <div class="student-info-row">
+                <span class="info-label">ACADEMIC YEAR: {{ school.current_academic_year|default:"2023/2024" }}</span>
+                <span style="margin-left: 50px;">TERM: THREE (3)</span>
+                <span style="margin-left: 50px;">CLASS NO........</span>
+            </div>
+            <div class="student-info-row">
+                <span class="info-label">CLASS TEACHER:......................................................................</span>
+                <span style="margin-left: 50px;">POSITION:.......</span>
+            </div>
+            <div class="student-info-row">
+                <span class="info-label">REOPENING DATE:...................................................</span>
+            </div>
+        </div>
+
+        <div class="watermark-wrapper">
+            <div class="watermark"></div>
+            <div class="table-wrap">
+            <table class="scores-table">
+                <thead>
+                    <tr>
+                        <th>SUBJECTS</th>
+                        <th>Class Score<br>50%</th>
+                        <th>Exams Score<br>50%</th>
+                        <th>Total Score<br>100%</th>
+                        {% if school.show_position_in_class %}<th>Position</th>{% endif %}
+                        <th>Remarks</th>
+                    </tr>
+                </thead>
+            <tbody>
+                <tr>
+                    <td class="subject-name">English Language</td>
+                    <td>42</td>
+                    <td>38</td>
+                    <td>80</td>
+                    {% if school.show_position_in_class %}<td>3rd</td>{% endif %}
+                    <td>{% with t=80 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
+                </tr>
+                <tr>
+                    <td class="subject-name">Mathematics</td>
+                    <td>45</td>
+                    <td>40</td>
+                    <td>85</td>
+                    {% if school.show_position_in_class %}<td>2nd</td>{% endif %}
+                    <td>{% with t=85 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
+                </tr>
+                <tr>
+                    <td class="subject-name">Integrated Science</td>
+                    <td>40</td>
+                    <td>35</td>
+                    <td>75</td>
+                    {% if school.show_position_in_class %}<td>5th</td>{% endif %}
+                    <td>{% with t=75 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
+                </tr>
+                <tr>
+                    <td class="subject-name">Social Studies</td>
+                    <td>41</td>
+                    <td>36</td>
+                    <td>77</td>
+                    {% if school.show_position_in_class %}<td>6th</td>{% endif %}
+                    <td>{% with t=77 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
+                </tr>
+                <tr>
+                    <td class="subject-name">Religious & Moral Edu.</td>
+                    <td>44</td>
+                    <td>41</td>
+                    <td>85</td>
+                    {% if school.show_position_in_class %}<td>1st</td>{% endif %}
+                    <td>{% with t=85 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
+                </tr>
+                <tr>
+                    <td class="subject-name">Ghanaian Language</td>
+                    <td>39</td>
+                    <td>33</td>
+                    <td>72</td>
+                    {% if school.show_position_in_class %}<td>7th</td>{% endif %}
+                    <td>{% with t=72 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
+                </tr>
+                <tr>
+                    <td class="subject-name">Computing</td>
+                    <td>46</td>
+                    <td>42</td>
+                    <td>88</td>
+                    {% if school.show_position_in_class %}<td>1st</td>{% endif %}
+                    <td>{% with t=88 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
+                </tr>
+                <tr>
+                    <td class="subject-name">Career Technology</td>
+                    <td>40</td>
+                    <td>35</td>
+                    <td>75</td>
+                    {% if school.show_position_in_class %}<td>8th</td>{% endif %}
+                    <td>{% with t=75 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
+                </tr>
+                <tr>
+                    <td class="subject-name">Creative Arts</td>
+                    <td>38</td>
+                    <td>32</td>
+                    <td>70</td>
+                    {% if school.show_position_in_class %}<td>9th</td>{% endif %}
+                    <td>{% with t=70 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
+                </tr>
+            </tbody>
+            </table>
+            </div>
+        </div>
+
+        <div class="attendance-conduct">
+            <p><strong>ATTENDANCE:</strong>.....................OUT OF:..................PROMOTED TO:..................</p>
+            
+            <div class="conduct-section">
+                <h4>CONDUCT:</h4>
+                <div class="dotted-line"></div>
+                <div class="dotted-line"></div>
+                
+                <h4>ATTITUDE:</h4>
+                <div class="dotted-line"></div>
+                <div class="dotted-line"></div>
+                <p style="text-align: right; margin-top: 10px;"><strong>INTEREST:</strong></p>
+                <div class="dotted-line"></div>
+                <div class="dotted-line"></div>
+            </div>
+            
+            <div class="remarks-section">
+                <p><strong>CLASS TEACHER'S REMARKS:.................................................................</strong></p>
+                <div class="dotted-line"></div>
+                <div class="dotted-line"></div>
+                <div class="dotted-line"></div>
+            </div>
+        </div>
+
+        <!-- End of formatted Ghana Education Service style report preview -->
+    </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal Report Sheet - {{ school.name }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 10px;
+            background-color: white;
+            font-size: 10px;
+            line-height: 1.1;
+            color: #000;
+        }
+        
+        @page {
+            size: A4;
+            margin: 0.5in;
+        }
+        
+        .report-container {
+            max-width: 210mm;
+            width: 100%;
+            margin: 0 auto;
+            background: white;
+            border: 3px solid #000;
+            padding: 8px;
+            box-sizing: border-box;
+            overflow: hidden;
+            min-height: 297mm;
+            max-height: 297mm;
+            page-break-inside: avoid;
+        }
+        
+        /* Header Section */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px 20px;
+            border-bottom: 2px solid #000;
+        }
+        
+        .school-logo {
+            width: 60px;
+            height: 60px;
+            border: 1px solid #000;
+        }
+        
+        .school-info {
+            text-align: center;
+            flex: 1;
+            margin: 0 20px;
+        }
+        
+        .school-info h1 {
+            font-size: 16px;
+            font-weight: bold;
+            margin: 0;
+            text-transform: uppercase;
+        }
+        
+        .school-info h2 {
+            font-size: 14px;
+            font-weight: bold;
+            margin: 2px 0;
+            text-transform: uppercase;
+        }
+        
+        .school-info h3 {
+            font-size: 12px;
+            font-weight: bold;
+            margin: 2px 0;
+            text-transform: uppercase;
+        }
+        
+        .school-contact {
+            font-size: 10px;
+            margin: 5px 0 0 0;
+        }
+        
+        /* Terminal Report Header */
+        .terminal-header {
+            background: #000;
+            color: white;
+            text-align: center;
+            padding: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            letter-spacing: 2px;
+        }
+        
+        /* Student Information */
+        .student-info {
+            padding: 15px 20px;
+            border-bottom: 2px solid #000;
+        }
+        
+        .info-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .field-group {
+            display: inline-flex;
+            align-items: center;
+            margin-right: 20px;
+            margin-bottom: 4px;
+        }
+        
+        .field-label {
+            font-weight: bold;
+            font-size: 10px;
+            margin-right: 8px;
+            color: #000;
+            white-space: nowrap;
+        }
+        
+        .field-value {
+            font-weight: normal;
+            font-size: 10px;
+            color: #000;
+            border-bottom: 1px solid #000;
+            padding-bottom: 1px;
+            padding-left: 4px;
+            padding-right: 4px;
+            min-width: 80px;
+            text-align: center;
+        }
+        
+        .info-field {
+            font-weight: bold;
+        }
+        
+        .info-value {
+            border-bottom: 1px dotted #000;
+            min-width: 200px;
+            text-align: center;
+        }
+        
+        /* Subjects Table */
+        .subjects-section {
+            padding: 0 20px;
+        }
+        
+        .subjects-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        
+        .subjects-table th,
+        .subjects-table td {
+            border: 1px solid #000;
+            padding: 8px;
+            text-align: center;
+            font-size: 11px;
+        }
+        
+        .subjects-table th {
+            background: #f0f0f0;
+            font-weight: bold;
+        }
+        
+        .subject-name {
+            text-align: left !important;
+            font-weight: bold;
+        }
+        
+        /* Additional Sections */
+        .additional-info {
+            padding: 15px 20px;
+            border-top: 2px solid #000;
+        }
+        
+        .section {
+            margin-bottom: 15px;
+        }
+        
+        .section-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .dotted-line {
+            border-bottom: 1px dotted #000;
+            height: 20px;
+            margin: 3px 0;
+        }
+        
+        .long-dotted-line {
+            border-bottom: 1px dotted #000;
+            height: 40px;
+            margin: 5px 0;
+        }
+        
+        .inline-field {
+            display: inline-block;
+            margin-right: 30px;
+        }
+        
+        /* Student Photo Styles */
+        .student-photo-section {
+            width: 100px;
+            flex-shrink: 0;
+            text-align: center;
+            margin-top: 5px;
+            margin-right: 10px;
+        }
+        
+        .photo-container {
+            width: 80px;
+            height: 100px;
+            border: 2px solid #000;
+            margin: 0 auto 3px auto;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        
+        .student-photo {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center;
+        }
+        
+        .no-photo {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f8f8f8;
+        }
+        
+        .photo-label {
+            font-size: 7px;
+            font-weight: bold;
+            color: #000;
+            text-align: center;
+            line-height: 1;
+        }
+        
+        .photo-placeholder {
+            text-align: center;
+        }
+        
+        .photo-label {
+            font-size: 8px;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 3px;
+            letter-spacing: 0.5px;
+        }
+        
+        .watermark {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            font-size: 72px;
+            color: rgba(0,0,0,0.1);
+            z-index: -1;
+            font-weight: bold;
+        }
+        
+        @media print {
+            body {
+                padding: 0;
+            }
+            .report-container {
+                box-shadow: none;
+                border: 4px solid #000;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="report-container">
+        {% if is_preview %}
+        <div class="watermark">PREVIEW</div>
+        {% endif %}
+        <!-- Header with School Information -->
+        <div class="header">
+            <div class="school-logo">
+                <!-- School logo placeholder -->
+                <div style="width: 100%; height: 100%; border: 1px solid #000; display: flex; align-items: center; justify-content: center; background: #f0f0f0;">
+                    LOGO
+                </div>
+            </div>
+            
+            <div class="school-info">
+                <h1>GHANA EDUCATION SERVICE</h1>
+                <h2>{{ school.name|upper }}</h2>
+                <h3>{% if school.school_type %}{{ school.school_type|upper }} SCHOOL{% else %}JUNIOR HIGH SCHOOL{% endif %}</h3>
+                <div class="school-contact">
+                    {% if school.address %}P. O. Box {{ school.address }}{% endif %}
+                    {% if school.phone %} | Tel: {{ school.phone }}{% endif %}
+                    <br>
+                    {% if school.email %}Email: {{ school.email|lower }}{% endif %}
+                    {% if school.website %} | Website: {{ school.website|lower }}{% endif %}
+                </div>
+            </div>
+            
+            <div class="school-logo">
+                <!-- Second logo placeholder -->
+                <div style="width: 100%; height: 100%; border: 1px solid #000; display: flex; align-items: center; justify-content: center; background: #f0f0f0;">
+                    LOGO
+                </div>
+            </div>
+        </div>
+        
+        <!-- Terminal Report Header -->
+        <div class="terminal-header">
+            TERMINAL REPORT SHEET
+            {% if is_preview %}
+            <div style="background: #ff6b6b; color: white; font-size: 10px; padding: 2px 8px; border-radius: 4px; display: inline-block; margin-left: 10px; letter-spacing: normal;">
+                PREVIEW MODE
+            </div>
+            {% endif %}
+        </div>
+        
+        <!-- Student Information -->
+        <div class="student-info">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; max-width: 100%; overflow: hidden;">
+                <!-- Student Details (Left Side) -->
+                <div style="flex: 1; margin-right: 15px; min-width: 0;">
+                    <div class="info-row">
+                        <div class="field-group">
+                            <span class="field-label">NAME:</span>
+                            <span class="field-value">{{ student.get_full_name|upper }}</span>
+                        </div>
+                        <div class="field-group" style="margin-left: 40px;">
+                            <span class="field-label">CLASS:</span>
+                            <span class="field-value">{{ student.current_class.name|default:"JSS 1A"|upper }}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="info-row">
+                        <div class="field-group">
+                            <span class="field-label">ACADEMIC YEAR:</span>
+                            <span class="field-value">{{ term.academic_year.name|default:"2024/2025" }}</span>
+                        </div>
+                        <div class="field-group" style="margin-left: 40px;">
+                            <span class="field-label">TERM:</span>
+                            <span class="field-value">{{ term.name|upper }}</span>
+                        </div>
+                        <div class="field-group" style="margin-left: 40px;">
+                            <span class="field-label">CLASS NO.:</span>
+                            <span class="field-value">{{ student.student_id|default:"001" }}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="info-row">
+                        <div class="field-group">
+                            <span class="field-label">CLASS TEACHER:</span>
+                            <span class="field-value">{{ class_teacher_name|upper|default:"TBD" }}</span>
+                        </div>
+                        <div class="field-group" style="margin-left: 40px;">
+                            <span class="field-label">POSITION:</span>
+                            <span class="field-value">
+                                {% if term_result.class_position %}
+                                    {% with pos=term_result.class_position %}
+                                        {% if pos|add:"0"|stringformat:"s"|slice:"-1" == "1" and pos != 11 %}{{ pos }}st
+                                        {% elif pos|add:"0"|stringformat:"s"|slice:"-1" == "2" and pos != 12 %}{{ pos }}nd
+                                        {% elif pos|add:"0"|stringformat:"s"|slice:"-1" == "3" and pos != 13 %}{{ pos }}rd
+                                        {% else %}{{ pos }}th
+                                        {% endif %} of {{ term_result.total_students|default:"N/A" }}
+                                    {% endwith %}
+                                {% else %}
+                                    {{ position }}
+                                {% endif %}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div class="info-row">
+                        <div class="field-group">
+                            <span class="field-label">REOPENING DATE:</span>
+                            <span class="field-value">{{ reopening_date|date:"jS F Y" }}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Student Photo (Right Side) -->
+                <div class="student-photo-section">
+                    <div class="photo-container">
+                        {% if student.photo %}
+                            {% load static %}
+                            <img src="{{ student.photo.url }}" alt="{{ student.get_full_name }}" class="student-photo" 
+                                 onerror="this.parentElement.innerHTML='<div class=&quot;no-photo&quot;><div class=&quot;photo-placeholder&quot;><div style=&quot;font-size: 24px; color: #666;&quot;>📷</div><div style=&quot;font-size: 8px; color: #666; margin-top: 5px;&quot;>PHOTO NOT FOUND</div></div></div>'">
+                        {% else %}
+                            <div class="no-photo">
+                                <div class="photo-placeholder">
+                                    <div style="font-size: 24px; color: #666;">📷</div>
+                                    <div style="font-size: 8px; color: #666; margin-top: 5px;">STUDENT PHOTO</div>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="photo-label" style="font-size: 7px; font-weight: bold; margin-top: 2px;">PASSPORT<br>PHOTOGRAPH</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Subjects Table -->
+        <div class="subjects-section">
+            <table class="subjects-table">
+                <thead>
+                    <tr>
+                        <th style="width: 25%;">SUBJECTS</th>
+                        <th style="width: 15%;">Class Score<br>50%</th>
+                        <th style="width: 15%;">Exams<br>Score 50%</th>
+                        <th style="width: 15%;">Total Score<br>100%</th>
+                        <th style="width: 15%;">Position</th>
+                        <th style="width: 15%;">Remarks</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for subject_result in subject_results %}
+                    <tr>
+                        <td class="subject-name">{{ subject_result.class_subject.subject.name }}</td>
+                        <td>{{ subject_result.class_score|floatformat:1 }}</td>
+                        <td>{{ subject_result.exam_score|floatformat:1 }}</td>
+                        <td>{{ subject_result.total_score|floatformat:1 }}</td>
+                        <td>
+                            {% if subject_result.position %}
+                                {% with pos=subject_result.position %}
+                                    {% if pos|add:"0"|stringformat:"s"|slice:"-1" == "1" and pos != 11 %}{{ pos }}st
+                                    {% elif pos|add:"0"|stringformat:"s"|slice:"-1" == "2" and pos != 12 %}{{ pos }}nd
+                                    {% elif pos|add:"0"|stringformat:"s"|slice:"-1" == "3" and pos != 13 %}{{ pos }}rd
+                                    {% else %}{{ pos }}th
+                                    {% endif %}
+                                {% endwith %}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>{{ subject_result.grade }}</td>
+                    </tr>
+                    {% endfor %}
+                    
+                    <!-- Fill remaining rows if fewer than 9 subjects -->
+                    {% for i in empty_rows %}
+                    <tr>
+                        <td class="subject-name">&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Additional Information -->
+        <div class="additional-info">
+            <div class="section">
+                <div class="field-group">
+                    <span class="field-label">ATTENDANCE:</span>
+                    <span class="field-value">{{ attendance.days_present|default:"85" }}</span>
+                </div>
+                <div class="field-group" style="margin-left: 30px;">
+                    <span class="field-label">OUT OF:</span>
+                    <span class="field-value">{{ attendance.total_days|default:"90" }}</span>
+                </div>
+                <div class="field-group" style="margin-left: 30px;">
+                    <span class="field-label">PROMOTED TO:</span>
+                    <span class="field-value">{% if term_result.promoted|default:True %}NEXT CLASS{% else %}REPEAT{% endif %}</span>
+                </div>
+            </div>
+            
+            <div class="section">
+                <div class="field-group">
+                    <span class="field-label">CONDUCT:</span>
+                    <span class="field-value">{{ behaviour.conduct|default:"GOOD" }}</span>
+                </div>
+            </div>
+            
+            <div class="section">
+                <div style="display: flex; justify-content: space-between;">
+                    <div class="field-group">
+                        <span class="field-label">ATTITUDE:</span>
+                        <span class="field-value">{{ behaviour.attitude|default:"EXCELLENT" }}</span>
+                    </div>
+                    <div class="field-group" style="margin-left: 30px;">
+                        <span class="field-label">INTEREST:</span>
+                        <span class="field-value">{{ behaviour.interest|default:"VERY GOOD" }}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <div class="field-group" style="width: 100%; flex-direction: column; align-items: flex-start;">
+                    <span class="field-label">CLASS TEACHER'S REMARKS:</span>
+                    <div style="width: 100%; border: 1px solid #000; padding: 8px; min-height: 40px; margin-top: 5px; background: #f9f9f9;">
+                        {{ behaviour.class_teacher_remarks|default:"Student has shown good progress this term. Continue to work hard." }}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section" style="margin-top: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="field-group">
+                        <span class="field-label">CLASS TEACHER'S SIGNATURE:</span>
+                        <div style="border-bottom: 1px solid #000; width: 150px; margin-left: 10px; height: 25px;"></div>
+                    </div>
+                    <div class="field-group">
+                        <span class="field-label">DATE:</span>
+                        <div style="border-bottom: 1px solid #000; width: 100px; margin-left: 10px; height: 25px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
