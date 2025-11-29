@@ -163,34 +163,49 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# CORS Settings
-CORS_ALLOWED_ORIGINS = list({
-    config('FRONTEND_URL', default='http://localhost:5173'),
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:3002',
-    'http://127.0.0.1:5173',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:3001',
-    'http://127.0.0.1:3002',
-    'https://elitetechreport.netlify.app',  # Production frontend
-    # Add Netlify URL when deployed
-})
-
+# CORS Settings - More permissive for production deployment
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
-# In development, allow LAN IPs to access the API from mobile devices
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:3000',
+    'http://localhost:3001', 
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+    'https://elitetechreport.netlify.app',
+    # Add any preview deploy URLs
+    'https://692b1d9d5e97e061d183dbc2--elitetechreport.netlify.app',
+]
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding', 
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'access-control-allow-origin',
+]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET', 
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+CORS_PREFLIGHT_MAX_AGE = 86400
+
+# In development, allow any origin
 if DEBUG:
     ALLOWED_HOSTS.extend(['*'])
     CORS_ALLOW_ALL_ORIGINS = True
-else:
-    # Production CORS - temporarily allow all origins for testing
-    CORS_ALLOW_ALL_ORIGINS = True
-    
-    # Add specific Netlify domain when available
-    NETLIFY_URL = config('NETLIFY_URL', default='')
-    if NETLIFY_URL:
-        CORS_ALLOWED_ORIGINS.append(NETLIFY_URL)
 
 # X-Frame-Options: Allow iframe embedding for preview functionality
 X_FRAME_OPTIONS = 'SAMEORIGIN'
