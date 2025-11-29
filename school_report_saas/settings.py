@@ -184,7 +184,10 @@ if DEBUG:
     ALLOWED_HOSTS.extend(['*'])
     CORS_ALLOW_ALL_ORIGINS = True
 else:
-    # Production CORS - Add your Netlify domain here
+    # Production CORS - temporarily allow all origins for testing
+    CORS_ALLOW_ALL_ORIGINS = True
+    
+    # Add specific Netlify domain when available
     NETLIFY_URL = config('NETLIFY_URL', default='')
     if NETLIFY_URL:
         CORS_ALLOWED_ORIGINS.append(NETLIFY_URL)
