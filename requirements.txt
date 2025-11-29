@@ -23,16 +23,12 @@ setuptools>=65.0.0
 # Image processing and PDF generation (Python 3.11 compatible versions)
 Pillow>=9.0.0,<11.0.0
 qrcode[pil]==7.4.2
-reportlab==4.0.4
+reportlab==4.0.7
 
 # Utilities
 python-decouple==3.8
 python-dotenv==1.0.0
 requests==2.31.0
-
-# NOTE: Optional packages to add later (may lack wheels on very new Python versions):
-# psycopg2-binary==2.9.9         # PostgreSQL driver (only if using Postgres locally)
-reportlab==4.0.7               # PDF generation
 # WeasyPrint==60.1               # Alternative PDF renderer
 # cloudinary==1.36.0             # Cloud image storage
 # pandas==2.1.3                  # Heavy data processing (bulk ops)
