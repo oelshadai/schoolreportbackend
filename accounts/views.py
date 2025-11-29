@@ -3,6 +3,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth import get_user_model
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from .serializers import (
     UserSerializer, 
     UserRegistrationSerializer, 
@@ -15,20 +17,35 @@ User = get_user_model()
 from schools.models import Class as SchoolClass
 
 
-class CustomTokenObtainPairView(TokenObtainPairView):
+class CORSMixin:
+    """Mixin to add CORS headers to all responses"""
+    
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        
+        # Add CORS headers
+        response['Access-Control-Allow-Origin'] = '*'
+        response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        response['Access-Control-Allow-Credentials'] = 'true'
+        
+        return response
+
+
+class CustomTokenObtainPairView(CORSMixin, TokenObtainPairView):
     """Custom login view with user data"""
     permission_classes = [permissions.AllowAny]
     serializer_class = CustomTokenObtainPairSerializer
 
 
-class RegisterView(generics.CreateAPIView):
+class RegisterView(CORSMixin, generics.CreateAPIView):
     """User registration view"""
     queryset = User.objects.all()
     permission_classes = [permissions.AllowAny]
     serializer_class = UserRegistrationSerializer
 
 
-class UserProfileView(generics.RetrieveUpdateAPIView):
+class UserProfileView(CORSMixin, generics.RetrieveUpdateAPIView):
     """Get and update user profile"""
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -37,7 +54,7 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
         return self.request.user
 
 
-class ChangePasswordView(APIView):
+class ChangePasswordView(CORSMixin, APIView):
     """Change user password"""
     permission_classes = [permissions.IsAuthenticated]
     
@@ -64,7 +81,7 @@ class ChangePasswordView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class UserListView(generics.ListAPIView):
+class UserListView(CORSMixin, generics.ListAPIView):
     """List users (admin only)"""
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -80,7 +97,7 @@ class UserListView(generics.ListAPIView):
             return User.objects.filter(id=user.id)
 
 
-class CreateTeacherView(generics.CreateAPIView):
+class CreateTeacherView(CORSMixin, generics.CreateAPIView):
     """Create teacher account (school admin only)"""
     serializer_class = UserRegistrationSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -118,7 +135,7 @@ class CreateTeacherView(generics.CreateAPIView):
         serializer.save(school=user.school, role='TEACHER')
 
 
-class RegisterSchoolView(APIView):
+class RegisterSchoolView(CORSMixin, APIView):
     """Endpoint for a new school to self-register and obtain JWT tokens"""
     permission_classes = [permissions.AllowAny]
 

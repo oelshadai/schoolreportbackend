@@ -3,6 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from .models import Teacher
 from .serializers import TeacherSerializer, TeacherCreateSerializer
 from schools.models import Class, ClassSubject
@@ -10,7 +12,23 @@ from schools.models import Class, ClassSubject
 User = get_user_model()
 
 
-class TeacherViewSet(viewsets.ModelViewSet):
+class CORSMixin:
+    """Mixin to add CORS headers to all responses"""
+    
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        
+        # Add CORS headers
+        response['Access-Control-Allow-Origin'] = '*'
+        response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        response['Access-Control-Allow-Credentials'] = 'true'
+        
+        return response
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class TeacherViewSet(CORSMixin, viewsets.ModelViewSet):
     """Teacher CRUD operations"""
     queryset = Teacher.objects.all()
     permission_classes = [permissions.IsAuthenticated]
