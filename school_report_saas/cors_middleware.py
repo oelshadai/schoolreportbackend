@@ -25,14 +25,22 @@ class ForceEveryCORSMiddleware:
     
     def add_cors_headers(self, response):
         """Add all necessary CORS headers to response"""
-        response['Access-Control-Allow-Origin'] = '*'
+        # Always allow all origins for maximum compatibility
+        origin = '*'
+        response['Access-Control-Allow-Origin'] = origin
         response['Access-Control-Allow-Credentials'] = 'true'
         response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH'
         response['Access-Control-Allow-Headers'] = (
             'Accept, Accept-Encoding, Accept-Language, Authorization, Content-Type, '
-            'DNT, Origin, User-Agent, X-CSRFToken, X-Requested-With, Cache-Control'
+            'DNT, Origin, User-Agent, X-CSRFToken, X-Requested-With, Cache-Control, '
+            'X-Forwarded-For, X-Forwarded-Proto, X-Real-IP'
         )
-        response['Access-Control-Expose-Headers'] = 'Content-Type, Authorization'
+        response['Access-Control-Expose-Headers'] = 'Content-Type, Authorization, X-Total-Count'
         response['Access-Control-Max-Age'] = '86400'
         response['Vary'] = 'Origin'
+        
+        # Additional headers for better compatibility
+        response['X-Content-Type-Options'] = 'nosniff'
+        response['X-Frame-Options'] = 'SAMEORIGIN'
+        
         return response
