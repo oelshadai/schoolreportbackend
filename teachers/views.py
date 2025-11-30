@@ -18,11 +18,17 @@ class CORSMixin:
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)
         
-        # Add CORS headers
+        # Add comprehensive CORS headers
         response['Access-Control-Allow-Origin'] = '*'
-        response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH'
+        response['Access-Control-Allow-Headers'] = (
+            'Accept, Accept-Encoding, Accept-Language, Authorization, Content-Type, '
+            'DNT, Origin, User-Agent, X-CSRFToken, X-Requested-With, Cache-Control'
+        )
+        response['Access-Control-Expose-Headers'] = 'Content-Type, Authorization'
         response['Access-Control-Allow-Credentials'] = 'true'
+        response['Access-Control-Max-Age'] = '86400'
+        response['Vary'] = 'Origin'
         
         return response
 

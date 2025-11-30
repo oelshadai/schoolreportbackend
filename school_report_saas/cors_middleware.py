@@ -29,8 +29,10 @@ class ForceEveryCORSMiddleware:
         response['Access-Control-Allow-Credentials'] = 'true'
         response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH'
         response['Access-Control-Allow-Headers'] = (
-            'Accept, Accept-Language, Authorization, Content-Type, '
-            'DNT, Origin, User-Agent, X-CSRFToken, X-Requested-With'
+            'Accept, Accept-Encoding, Accept-Language, Authorization, Content-Type, '
+            'DNT, Origin, User-Agent, X-CSRFToken, X-Requested-With, Cache-Control'
         )
+        response['Access-Control-Expose-Headers'] = 'Content-Type, Authorization'
         response['Access-Control-Max-Age'] = '86400'
+        response['Vary'] = 'Origin'
         return response

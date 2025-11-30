@@ -192,6 +192,13 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
     'access-control-allow-origin',
+    'cache-control',
+]
+
+# Expose headers for the frontend
+CORS_EXPOSE_HEADERS = [
+    'content-type',
+    'authorization',
 ]
 
 # Explicit CORS methods
