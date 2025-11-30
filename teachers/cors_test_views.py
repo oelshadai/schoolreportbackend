@@ -35,7 +35,7 @@ def cors_test(request):
 @csrf_exempt
 @require_http_methods(["GET", "POST", "OPTIONS"])
 def teacher_cors_test(request):
-    """Specific test for teacher creation endpoint"""
+    """Specific test for teacher creation endpoint - no auth required"""
     
     if request.method == 'OPTIONS':
         response = JsonResponse({'status': 'preflight_ok'})
@@ -44,10 +44,12 @@ def teacher_cors_test(request):
             data = json.loads(request.body) if request.body else {}
             response = JsonResponse({
                 'status': 'success',
-                'message': 'Teacher creation endpoint is accessible',
-                'received_data': data,
+                'message': 'Teacher CORS test successful - POST data received',
+                'received_data_keys': list(data.keys()) if data else [],
                 'content_type': request.content_type,
-                'auth_header': request.META.get('HTTP_AUTHORIZATION', 'None')
+                'auth_header': 'Present' if request.META.get('HTTP_AUTHORIZATION') else 'Missing',
+                'origin': request.META.get('HTTP_ORIGIN', 'No origin header'),
+                'note': 'This is a test endpoint. For actual teacher creation, use /api/teachers/ with authentication.'
             })
         except json.JSONDecodeError:
             response = JsonResponse({
@@ -57,8 +59,10 @@ def teacher_cors_test(request):
     else:
         response = JsonResponse({
             'status': 'success',
-            'message': 'Teacher creation endpoint is accessible via GET',
-            'available_methods': ['GET', 'POST', 'OPTIONS']
+            'message': 'Teacher CORS test endpoint is accessible via GET',
+            'available_methods': ['GET', 'POST', 'OPTIONS'],
+            'origin': request.META.get('HTTP_ORIGIN', 'No origin header'),
+            'note': 'This endpoint tests CORS for teacher operations without authentication requirements.'
         })
     
     # Add explicit CORS headers

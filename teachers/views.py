@@ -12,6 +12,17 @@ from schools.models import Class, ClassSubject
 User = get_user_model()
 
 
+class CORSPermission(permissions.BasePermission):
+    """
+    Custom permission that allows OPTIONS requests (for CORS preflight)
+    but requires authentication for other methods
+    """
+    def has_permission(self, request, view):
+        if request.method == 'OPTIONS':
+            return True
+        return request.user and request.user.is_authenticated
+
+
 class CORSMixin:
     """Mixin to add CORS headers to all responses"""
     
@@ -37,7 +48,7 @@ class CORSMixin:
 class TeacherViewSet(CORSMixin, viewsets.ModelViewSet):
     """Teacher CRUD operations"""
     queryset = Teacher.objects.all()
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [CORSPermission]
     
     @action(detail=False, methods=['get'])
     def assignments(self, request):
