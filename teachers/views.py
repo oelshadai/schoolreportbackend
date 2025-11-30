@@ -112,6 +112,12 @@ class TeacherViewSet(CORSMixin, viewsets.ModelViewSet):
                 'user_role': getattr(request.user, 'role', 'Anonymous'),
                 'has_school': hasattr(request.user, 'school') and request.user.school is not None if request.user.is_authenticated else False
             })
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'endpoint': 'teachers',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['get'])
     def assignments(self, request):
