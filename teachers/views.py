@@ -56,9 +56,71 @@ class TeacherViewSet(CORSMixin, viewsets.ModelViewSet):
     queryset = Teacher.objects.all()
     permission_classes = [CORSPermission]
     
+    def get_serializer_class(self):
+        """Get appropriate serializer based on action"""
+        try:
+            if self.action == 'create':
+                from .serializers import TeacherCreateSerializer
+                return TeacherCreateSerializer
+            from .serializers import TeacherSerializer
+            return TeacherSerializer
+        except Exception as e:
+            # Fallback to basic serializer
+            from .serializers import TeacherSerializer
+            return TeacherSerializer
+    
+    def list(self, request, *args, **kwargs):
+        """List teachers - requires authentication"""
+        if not request.user.is_authenticated:
+            return Response({
+                'error': 'Authentication required to list teachers',
+                'detail': 'Please login to access teacher data'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        try:
+            # Get teachers for user's school
+            if hasattr(request.user, 'school') and request.user.school:
+                teachers = Teacher.objects.filter(school=request.user.school)
+            else:
+                return Response({
+                    'error': 'No school associated with user',
+                    'detail': 'User must be associated with a school to view teachers'
+                }, status=status.HTTP_403_FORBIDDEN)
+                
+            serializer = self.get_serializer(teachers, many=True)
+            return Response(serializer.data)
+            
+        except Exception as e:
+            return Response({
+                'error': 'Failed to retrieve teachers',
+                'detail': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['get'], permission_classes=[])
+    def health(self, request):
+        """Health check endpoint for teachers API"""
+        try:
+            from .models import Teacher
+            teacher_count = Teacher.objects.count()
+            
+            return Response({
+                'status': 'healthy',
+                'endpoint': 'teachers',
+                'total_teachers': teacher_count,
+                'user_authenticated': request.user.is_authenticated,
+                'user_id': request.user.id if request.user.is_authenticated else None,
+                'user_role': getattr(request.user, 'role', 'Anonymous'),
+                'has_school': hasattr(request.user, 'school') and request.user.school is not None if request.user.is_authenticated else False
+            })
+    
     @action(detail=False, methods=['get'])
     def assignments(self, request):
         """Get current user's teaching assignments (classes and subjects)"""
+        if not request.user.is_authenticated:
+            return Response({
+                'error': 'Authentication required'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+            
         user = request.user
         
         # Get classes where user is class teacher
@@ -124,27 +186,53 @@ class TeacherViewSet(CORSMixin, viewsets.ModelViewSet):
     @transaction.atomic
     def create(self, request, *args, **kwargs):
         """Create a new teacher with user account"""
-        serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
+        try:
+            # Check authentication first
+            if not request.user.is_authenticated:
+                return Response({
+                    'error': 'Authentication required',
+                    'detail': 'Please login to create teachers'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            # Check if user has school
+            if not hasattr(request.user, 'school') or not request.user.school:
+                return Response({
+                    'error': 'No school associated',
+                    'detail': 'User must be associated with a school to create teachers'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
             # Check permissions
-            if not (request.user.is_school_admin or request.user.is_principal):
+            if not (getattr(request.user, 'is_school_admin', False) or getattr(request.user, 'is_principal', False)):
+                return Response({
+                    "error": "Only school admins and principals can create teachers",
+                    "detail": f"Current user role: {getattr(request.user, 'role', 'Unknown')}"
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            serializer = self.get_serializer(data=request.data)
+            if serializer.is_valid():
+                # Set school from user's school
+                teacher = serializer.save(school=request.user.school)
+                
+                # Prepare response with teacher data
+                from .serializers import TeacherSerializer
+                response_data = TeacherSerializer(teacher).data
+                response_data['message'] = f"Teacher {teacher.get_full_name()} created successfully! Welcome email with login credentials has been sent to {teacher.user.email}."
+                
                 return Response(
-                    {"error": "Only school admins and principals can create teachers"}, 
-                    status=status.HTTP_403_FORBIDDEN
+                    response_data, 
+                    status=status.HTTP_201_CREATED
                 )
-            
-            # Set school from user's school
-            teacher = serializer.save(school=request.user.school)
-            
-            # Prepare response with teacher data
-            response_data = TeacherSerializer(teacher).data
-            response_data['message'] = f"Teacher {teacher.get_full_name()} created successfully! Welcome email with login credentials has been sent to {teacher.user.email}."
-            
-            return Response(
-                response_data, 
-                status=status.HTTP_201_CREATED
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({
+                    'error': 'Validation failed',
+                    'details': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                'error': 'Failed to create teacher',
+                'detail': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=True, methods=['get'])
     def teaching_schedule(self, request, pk=None):
