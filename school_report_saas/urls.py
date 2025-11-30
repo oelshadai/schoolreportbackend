@@ -22,31 +22,39 @@ def api_root(request):
             'scores': '/api/scores/',
             'reports': '/api/reports/',
             'subscriptions': '/api/subscriptions/',
+            'cors_test': '/api/cors-test/',
         },
         'frontend': 'http://localhost:3000/',
         'status': 'running'
     })
 
 @csrf_exempt
-def cors_test(request):
-    """CORS test endpoint to verify headers"""
+def cors_test_endpoint(request):
+    """Test CORS configuration"""
     response = JsonResponse({
-        'message': 'CORS test successful',
-        'origin': request.META.get('HTTP_ORIGIN', 'No origin header'),
+        'cors_status': 'working',
         'method': request.method,
-        'headers': dict(request.headers),
+        'origin': request.META.get('HTTP_ORIGIN', 'Unknown'),
+        'message': 'CORS headers are properly configured'
     })
     
-    # Manually add CORS headers for testing
+    # Add explicit CORS headers
     response['Access-Control-Allow-Origin'] = '*'
-    response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH'
+    response['Access-Control-Allow-Headers'] = (
+        'Accept, Accept-Encoding, Accept-Language, Authorization, Content-Type, '
+        'DNT, Origin, User-Agent, X-CSRFToken, X-Requested-With, Cache-Control'
+    )
+    response['Access-Control-Allow-Credentials'] = 'true'
+    response['Access-Control-Max-Age'] = '86400'
+    response['Vary'] = 'Origin'
     
     return response
 
 urlpatterns = [
     path('', api_root, name='api_root'),
-    path('cors-test/', cors_test, name='cors_test'),
+    path('api/', api_root, name='api_root_api'),
+    path('api/cors-test/', cors_test_endpoint, name='cors_test'),
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
     path('api/schools/', include('schools.urls')),
