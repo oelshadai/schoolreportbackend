@@ -214,7 +214,8 @@ class TeacherViewSet(CORSMixin, viewsets.ModelViewSet):
                     "detail": f"Current user role: {getattr(request.user, 'role', 'Unknown')}"
                 }, status=status.HTTP_403_FORBIDDEN)
             
-            serializer = self.get_serializer(data=request.data)
+            # Pass context to serializer for validation
+            serializer = self.get_serializer(data=request.data, context={'request': request})
             if serializer.is_valid():
                 # Set school from user's school
                 teacher = serializer.save(school=request.user.school)

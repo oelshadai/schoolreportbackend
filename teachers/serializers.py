@@ -67,22 +67,30 @@ class TeacherCreateSerializer(serializers.ModelSerializer):
     
     def validate_employee_id(self, value):
         """Ensure employee_id is unique within school"""
-        school = self.context['request'].user.school
-        if Teacher.objects.filter(employee_id=value, school=school).exists():
-            raise serializers.ValidationError("A teacher with this employee ID already exists in your school.")
+        try:
+            school = self.context.get('request').user.school if self.context.get('request') else None
+            if school and Teacher.objects.filter(employee_id=value, school=school).exists():
+                raise serializers.ValidationError("A teacher with this employee ID already exists in your school.")
+        except Exception as e:
+            logger.warning(f"Error validating employee_id: {str(e)}")
         return value
     
     def validate_class_id(self, value):
         """Validate class assignment belongs to the same school"""
         if value:
-            school = self.context['request'].user.school
             try:
+                request = self.context.get('request')
+                if not request:
+                    return value
+                school = request.user.school
                 class_instance = Class.objects.get(id=value, school=school)
                 # Check if class already has a class teacher
                 if class_instance.class_teacher:
                     raise serializers.ValidationError(f"Class {class_instance} already has a class teacher assigned.")
             except Class.DoesNotExist:
                 raise serializers.ValidationError("Invalid class selection.")
+            except Exception as e:
+                logger.warning(f"Error validating class_id: {str(e)}")
         return value
     
     @transaction.atomic
