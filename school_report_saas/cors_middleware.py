@@ -1,5 +1,6 @@
 """
-Custom CORS middleware to ensure CORS headers are always added to every response
+Custom CORS middleware to force CORS headers on every response.
+This must be the FIRST middleware in the MIDDLEWARE list in settings.py
 """
 
 from django.http import HttpResponse
@@ -7,41 +8,52 @@ from django.http import HttpResponse
 
 class ForceEveryCORSMiddleware:
     """
-    Middleware to forcefully add CORS headers to every response.
-    This ensures cross-origin requests from Netlify frontend work properly.
+    Aggressive CORS middleware that ensures headers are added to EVERY response,
+    including OPTIONS preflight requests.
+    
+    CRITICAL: This MUST be the first middleware in MIDDLEWARE list!
     """
     
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        # Handle OPTIONS requests (CORS preflight)
+        # ALWAYS handle OPTIONS requests - they need CORS headers to succeed
         if request.method == 'OPTIONS':
-            response = HttpResponse()
+            # Create a simple response for preflight
+            response = HttpResponse('')
+            response.status_code = 200
         else:
+            # For all other methods, get the normal response
             response = self.get_response(request)
         
-        # Force CORS headers on every response
-        self._add_cors_headers(response)
+        # Apply CORS headers to response
+        self._apply_cors_headers(response)
         return response
     
-    def _add_cors_headers(self, response):
+    def _apply_cors_headers(self, response):
         """
-        Add CORS headers to response.
-        Using * for origin since we want to allow all cross-origin requests.
+        Apply CORS headers. These are the MINIMUM required headers for CORS to work.
         """
-        # Always set these headers
+        # The origin header - MUST be present and match for browser to allow request
         response['Access-Control-Allow-Origin'] = '*'
-        response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD'
+        
+        # Methods - list all HTTP methods that might be used
+        response['Access-Control-Allow-Methods'] = (
+            'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS'
+        )
+        
+        # Headers - list all headers that client might send
         response['Access-Control-Allow-Headers'] = (
             'Accept, Accept-Language, Content-Language, Content-Type, '
             'Authorization, X-Requested-With, X-CSRFToken, Cache-Control, '
             'Origin, User-Agent, DNT, X-Request-ID, X-API-Key'
         )
-        response['Access-Control-Expose-Headers'] = (
-            'Content-Type, Authorization, X-Total-Count, X-Page-Count'
-        )
-        response['Access-Control-Max-Age'] = '86400'
-        response['X-Content-Type-Options'] = 'nosniff'
+        
+        # Expose - headers that client can read from response
+        response['Access-Control-Expose-Headers'] = 'Content-Type, Authorization'
+        
+        # Cache time for preflight
+        response['Access-Control-Max-Age'] = '3600'
         
         return response
