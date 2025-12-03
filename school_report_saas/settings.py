@@ -162,10 +162,35 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
-# CORS Settings - Using django-cors-headers with simple configuration
-# Combined with WSGI wrapper for maximum compatibility
+# CORS Settings - Using django-cors-headers with aggressive configuration
+# ALLOW_ALL_ORIGINS must be True for cross-origin requests to work
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = False
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'cache-control',
+]
+CORS_EXPOSE_HEADERS = [
+    'content-type',
+    'authorization',
+    'x-total-count',
+]
 
 # X-Frame-Options: Allow iframe embedding for preview functionality
 X_FRAME_OPTIONS = 'SAMEORIGIN'
