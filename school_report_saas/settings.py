@@ -162,10 +162,15 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
-# CORS Settings - Using django-cors-headers with aggressive configuration
-# ALLOW_ALL_ORIGINS must be True for cross-origin requests to work
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_CREDENTIALS = False
+# CORS Settings - read allowed origins from environment for safer defaults
+# Set `CORS_ALLOWED_ORIGINS` env var to a comma-separated list like:
+#  https://elitetechreport.netlify.app,http://localhost:5173
+# If you need to allow all origins temporarily, set `CORS_ALLOW_ALL_ORIGINS=True` in env.
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='http://localhost:5173').split(',')
+# Allow an override to permit all origins (use with caution)
+CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
+CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=False, cast=bool)
+
 CORS_ALLOW_METHODS = [
     'DELETE',
     'GET',
@@ -174,6 +179,7 @@ CORS_ALLOW_METHODS = [
     'POST',
     'PUT',
 ]
+
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -186,6 +192,7 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
     'cache-control',
 ]
+
 CORS_EXPOSE_HEADERS = [
     'content-type',
     'authorization',
