@@ -166,13 +166,13 @@ SIMPLE_JWT = {
 
 # CORS Settings - Handled by custom ForceEveryCORSMiddleware
 CORS_ALLOW_ALL_ORIGINS = False
-CORS_ALLOW_CREDENTIALS = True 
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:3000',
     'http://localhost:5173',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:5173',
     'https://elitetechreport.netlify.app',
-    # Add any preview deploy URLs
-    'https://692b1d9d5e97e061d183dbc2--elitetechreport.netlify.app',
 ]
 
 # Explicit CORS headers
