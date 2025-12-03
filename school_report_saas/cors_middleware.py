@@ -1,60 +1,47 @@
 """
-Custom CORS middleware to ensure CORS headers are always added
+Custom CORS middleware to ensure CORS headers are always added to every response
 """
 
 from django.http import HttpResponse
-import logging
 
-logger = logging.getLogger(__name__)
 
 class ForceEveryCORSMiddleware:
     """
-    Middleware to add CORS headers to every response, ensuring cross-origin requests work
+    Middleware to forcefully add CORS headers to every response.
+    This ensures cross-origin requests from Netlify frontend work properly.
     """
     
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        # Handle preflight OPTIONS requests first
+        # Handle OPTIONS requests (CORS preflight)
         if request.method == 'OPTIONS':
-            logger.debug(f"OPTIONS request to {request.path} from origin {request.META.get('HTTP_ORIGIN')}")
             response = HttpResponse()
-            self.add_cors_headers(response, request)
-            return response
-        
-        # Process the actual request
-        try:
+        else:
             response = self.get_response(request)
-        except Exception as e:
-            logger.error(f"Error processing request: {str(e)}")
-            response = HttpResponse(status=500)
         
-        self.add_cors_headers(response, request)
+        # Force CORS headers on every response
+        self._add_cors_headers(response)
         return response
     
-    def add_cors_headers(self, response, request=None):
-        """Add all necessary CORS headers to response"""
-        # Always allow all origins - this is critical for cross-origin requests
+    def _add_cors_headers(self, response):
+        """
+        Add CORS headers to response.
+        Using * for origin since we want to allow all cross-origin requests.
+        """
+        # Always set these headers
         response['Access-Control-Allow-Origin'] = '*'
-        response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH, TRACE'
+        response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD'
         response['Access-Control-Allow-Headers'] = (
-            'Accept, Accept-Encoding, Accept-Language, Authorization, '
-            'Content-Type, Content-Length, Origin, User-Agent, X-CSRFToken, '
-            'X-Requested-With, X-Request-ID, Cache-Control, DNT, '
-            'X-Forwarded-For, X-Forwarded-Proto, X-Real-IP, X-Api-Key'
+            'Accept, Accept-Language, Content-Language, Content-Type, '
+            'Authorization, X-Requested-With, X-CSRFToken, Cache-Control, '
+            'Origin, User-Agent, DNT, X-Request-ID, X-API-Key'
         )
         response['Access-Control-Expose-Headers'] = (
-            'Content-Type, Content-Length, Authorization, X-Total-Count, '
-            'X-Page-Count, X-Request-ID'
+            'Content-Type, Authorization, X-Total-Count, X-Page-Count'
         )
         response['Access-Control-Max-Age'] = '86400'
-        response['Access-Control-Allow-Credentials'] = 'true'
-        response['Vary'] = 'Origin, Accept-Encoding'
-        
-        # Security headers
         response['X-Content-Type-Options'] = 'nosniff'
-        response['X-Frame-Options'] = 'SAMEORIGIN'
-        response['X-XSS-Protection'] = '1; mode=block'
         
         return response

@@ -56,6 +56,10 @@ class TeacherViewSet(CORSMixin, viewsets.ModelViewSet):
     queryset = Teacher.objects.all()
     permission_classes = [CORSPermission]
     
+    def options(self, request, *args, **kwargs):
+        """Handle CORS preflight requests"""
+        return Response(status=status.HTTP_200_OK)
+    
     def get_serializer_class(self):
         """Get appropriate serializer based on action"""
         try:
