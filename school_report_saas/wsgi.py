@@ -39,14 +39,19 @@ class CORSWSGIMiddleware:
         
         # For all other requests, wrap the start_response to inject CORS headers
         def cors_start_response(status, response_headers, exc_info=None):
-            # Add CORS headers to every response
-            cors_headers = [
-                ('Access-Control-Allow-Origin', '*'),
-                ('Access-Control-Allow-Methods', 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS'),
-                ('Access-Control-Allow-Headers', 'Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, X-CSRFToken, Cache-Control, Origin, User-Agent, DNT, X-Request-ID'),
-                ('Access-Control-Max-Age', '3600'),
-            ]
-            response_headers.extend(cors_headers)
+            # Check if Access-Control-Allow-Origin already exists to avoid duplicates
+            has_cors = any(header[0].lower() == 'access-control-allow-origin' for header in response_headers)
+            
+            # Only add CORS headers if they don't already exist
+            if not has_cors:
+                cors_headers = [
+                    ('Access-Control-Allow-Origin', '*'),
+                    ('Access-Control-Allow-Methods', 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS'),
+                    ('Access-Control-Allow-Headers', 'Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, X-CSRFToken, Cache-Control, Origin, User-Agent, DNT, X-Request-ID'),
+                    ('Access-Control-Max-Age', '3600'),
+                ]
+                response_headers.extend(cors_headers)
+            
             return start_response(status, response_headers, exc_info)
         
         # Call the Django application with the wrapped start_response

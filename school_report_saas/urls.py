@@ -31,12 +31,7 @@ def api_root(request):
         'cors_enabled': True
     })
     
-    # Add CORS headers
-    response['Access-Control-Allow-Origin'] = '*'
-    response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
-    response['Access-Control-Allow-Credentials'] = 'true'
-    
+    # CORS headers are handled by WSGI middleware - no need to add them here
     return response
 
 @csrf_exempt
@@ -49,12 +44,7 @@ def health_check(request):
         'cors': 'enabled'
     })
     
-    # Add CORS headers
-    response['Access-Control-Allow-Origin'] = '*'
-    response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
-    response['Access-Control-Allow-Credentials'] = 'true'
-    
+    # CORS headers are handled by WSGI middleware
     return response
 
 @csrf_exempt
@@ -67,17 +57,7 @@ def cors_test_endpoint(request):
         'message': 'CORS headers are properly configured'
     })
     
-    # Add explicit CORS headers
-    response['Access-Control-Allow-Origin'] = '*'
-    response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH'
-    response['Access-Control-Allow-Headers'] = (
-        'Accept, Accept-Encoding, Accept-Language, Authorization, Content-Type, '
-        'DNT, Origin, User-Agent, X-CSRFToken, X-Requested-With, Cache-Control'
-    )
-    response['Access-Control-Allow-Credentials'] = 'true'
-    response['Access-Control-Max-Age'] = '86400'
-    response['Vary'] = 'Origin'
-    
+    # CORS headers are handled by WSGI middleware
     return response
 
 urlpatterns = [
