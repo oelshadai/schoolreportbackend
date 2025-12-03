@@ -44,7 +44,6 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'school_report_saas.cors_middleware.ForceEveryCORSMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -163,50 +162,9 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
-
-# CORS Settings - Permissive for all origins (handled by ForceEveryCORSMiddleware)
-# The custom middleware in cors_middleware.py handles all CORS logic
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_CREDENTIALS = False
-
-# Explicit CORS headers
-CORS_ALLOW_HEADERS = [
-    'accept',
-    'accept-encoding', 
-    'authorization',
-    'content-type',
-    'dnt',
-    'origin',
-    'user-agent',
-    'x-csrftoken',
-    'x-requested-with',
-    'access-control-allow-origin',
-    'cache-control',
-]
-
-# Expose headers for the frontend
-CORS_EXPOSE_HEADERS = [
-    'content-type',
-    'authorization',
-]
-
-# Explicit CORS methods
-CORS_ALLOW_METHODS = [
-    'DELETE',
-    'GET', 
-    'OPTIONS',
-    'PATCH',
-    'POST',
-    'PUT',
-]
-
-# CORS preflight cache
-CORS_PREFLIGHT_MAX_AGE = 86400
-
-# In development, allow any origin
-if DEBUG:
-    ALLOWED_HOSTS.extend(['*'])
-    CORS_ALLOW_ALL_ORIGINS = True
+# CORS Settings - Disabled, custom middleware handles all CORS
+# DO NOT set CORS_ALLOW_ALL_ORIGINS or other cors-headers settings
+# Our ForceEveryCORSMiddleware is the only CORS handler needed
 
 # X-Frame-Options: Allow iframe embedding for preview functionality
 X_FRAME_OPTIONS = 'SAMEORIGIN'
