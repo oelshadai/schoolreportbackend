@@ -11,53 +11,52 @@ from django.core.wsgi import get_wsgi_application
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'school_report_saas.settings')
 
-django_application = get_wsgi_application()
+django_app = get_wsgi_application()
 
 
-class CORSWSGIMiddleware:
+def application(environ, start_response):
     """
-    WSGI middleware to add CORS headers at the application level.
-    This runs at the outermost layer before anything else can interfere.
+    WSGI application wrapper that adds CORS headers to ALL responses.
+    This is the simplest and most reliable way to add CORS at the application level.
     """
     
-    def __init__(self, application):
-        self.application = application
+    # For OPTIONS requests, return immediately with CORS headers only
+    if environ.get('REQUEST_METHOD') == 'OPTIONS':
+        status = '200 OK'
+        response_headers = [
+            ('Content-Type', 'text/plain'),
+            ('Content-Length', '0'),
+            ('Access-Control-Allow-Origin', '*'),
+            ('Access-Control-Allow-Methods', 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS'),
+            ('Access-Control-Allow-Headers', 'Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, X-CSRFToken, Cache-Control, Origin, User-Agent, DNT'),
+            ('Access-Control-Max-Age', '3600'),
+        ]
+        start_response(status, response_headers)
+        return [b'']
     
-    def __call__(self, environ, start_response):
-        # For OPTIONS requests, return immediately with CORS headers
-        if environ.get('REQUEST_METHOD') == 'OPTIONS':
-            status = '204 No Content'
-            headers = [
-                ('Access-Control-Allow-Origin', '*'),
-                ('Access-Control-Allow-Methods', 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS'),
-                ('Access-Control-Allow-Headers', 'Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, X-CSRFToken, Cache-Control, Origin, User-Agent, DNT, X-Request-ID'),
-                ('Access-Control-Max-Age', '3600'),
-                ('Content-Length', '0'),
-            ]
-            start_response(status, headers)
-            return [b'']
-        
-        # For all other requests, wrap the start_response to inject CORS headers
-        def cors_start_response(status, response_headers, exc_info=None):
-            # Check if Access-Control-Allow-Origin already exists to avoid duplicates
-            has_cors = any(header[0].lower() == 'access-control-allow-origin' for header in response_headers)
+    # For other methods, we need to intercept the response and add headers
+    cors_headers_added = [False]  # Use list to make it mutable in nested function
+    
+    def cors_start_response(status, response_headers, exc_info=None):
+        """Wrapper for start_response that adds CORS headers"""
+        if not cors_headers_added[0]:
+            # Check if CORS header already exists
+            has_cors = any(h[0].lower() == 'access-control-allow-origin' for h in response_headers)
             
-            # Only add CORS headers if they don't already exist
             if not has_cors:
-                cors_headers = [
+                # Add CORS headers
+                response_headers = list(response_headers) if response_headers else []
+                response_headers.extend([
                     ('Access-Control-Allow-Origin', '*'),
                     ('Access-Control-Allow-Methods', 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS'),
-                    ('Access-Control-Allow-Headers', 'Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, X-CSRFToken, Cache-Control, Origin, User-Agent, DNT, X-Request-ID'),
+                    ('Access-Control-Allow-Headers', 'Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, X-CSRFToken, Cache-Control, Origin, User-Agent, DNT'),
                     ('Access-Control-Max-Age', '3600'),
-                ]
-                response_headers.extend(cors_headers)
+                ])
             
-            return start_response(status, response_headers, exc_info)
+            cors_headers_added[0] = True
         
-        # Call the Django application with the wrapped start_response
-        return self.application(environ, cors_start_response)
-
-
-# Wrap the Django application with CORS middleware
-application = CORSWSGIMiddleware(django_application)
+        return start_response(status, response_headers, exc_info)
+    
+    # Call Django application with our wrapped start_response
+    return django_app(environ, cors_start_response)
 
