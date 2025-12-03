@@ -43,6 +43,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -161,9 +162,10 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
-# CORS Settings - Disabled, custom middleware handles all CORS
-# DO NOT set CORS_ALLOW_ALL_ORIGINS or other cors-headers settings
-# Our ForceEveryCORSMiddleware is the only CORS handler needed
+# CORS Settings - Using django-cors-headers with simple configuration
+# Combined with WSGI wrapper for maximum compatibility
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = False
 
 # X-Frame-Options: Allow iframe embedding for preview functionality
 X_FRAME_OPTIONS = 'SAMEORIGIN'
