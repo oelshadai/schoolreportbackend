@@ -166,10 +166,10 @@ SIMPLE_JWT = {
 # Set `CORS_ALLOWED_ORIGINS` env var to a comma-separated list like:
 #  https://elitetechreport.netlify.app,http://localhost:5173
 # If you need to allow all origins temporarily, set `CORS_ALLOW_ALL_ORIGINS=True` in env.
-CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='http://localhost:5173').split(',')
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='https://elitetechreport.netlify.app,http://localhost:5173').split(',')
 # Allow an override to permit all origins (use with caution)
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
-CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=False, cast=bool)
+CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
 
 CORS_ALLOW_METHODS = [
     'DELETE',
