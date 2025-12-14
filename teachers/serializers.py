@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class TeacherSerializer(serializers.ModelSerializer):
     """Serializer for Teacher model with full user information"""
-    
+
     first_name = serializers.CharField(source='user.first_name', read_only=True)
     last_name = serializers.CharField(source='user.last_name', read_only=True)
     email = serializers.EmailField(source='user.email', read_only=True)
@@ -21,34 +21,42 @@ class TeacherSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     user_id = serializers.IntegerField(source='user.id', read_only=True)
     specializations_detail = SubjectSerializer(source='specializations', many=True, read_only=True)
-    
+
     class Meta:
         model = Teacher
         fields = [
-            'id', 'user_id', 'employee_id', 'first_name', 'last_name', 
-            'email', 'phone_number', 'full_name', 'hire_date', 
-            'qualification', 'experience_years', 'emergency_contact', 
-            'address', 'is_class_teacher', 'is_active', 
-            'specializations', 'specializations_detail', 'created_at', 'updated_at'
+            'id', 'user_id', 'employee_id', 'first_name', 'last_name',
+            'email', 'phone_number', 'full_name', 'hire_date',
+            'qualification', 'experience_years', 'emergency_contact',
+            'address', 'is_class_teacher', 'is_active',
+            'specializations_detail', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'is_class_teacher', 'created_at', 'updated_at']
-    
+
     def get_full_name(self, obj):
         return obj.get_full_name()
 
 
 class TeacherCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating a new teacher with user account"""
-    
+
     # User fields
     first_name = serializers.CharField(max_length=100)
     last_name = serializers.CharField(max_length=100)
     email = serializers.EmailField()
     phone_number = serializers.CharField(max_length=15, required=False, allow_blank=True)
     password = serializers.CharField(write_only=True, min_length=6)
-    
+
     # Optional class assignment
     class_id = serializers.IntegerField(required=False, allow_null=True)
+
+    # Explicitly define specializations field to avoid nested serialization issues
+    specializations = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.all(),
+        many=True,
+        required=False,
+        allow_empty=True
+    )
     
     class Meta:
         model = Teacher
