@@ -6,19 +6,19 @@ from pathlib import Path
 from datetime import timedelta
 from decouple import config
 import os
+import dj_database_url
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# SECURITY WARNING: keep the secret key used in production secret!
+# Security
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-development-key-change-in-production')
-
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=True, cast=bool)
+ALLOWED_HOSTS = [h.strip() for h in config(
+    'ALLOWED_HOSTS',
+    default='localhost,127.0.0.1,*.onrender.com'
+).split(',')]
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,*.onrender.com').split(',')
-
-# Application definition
+# Applications
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -26,12 +26,12 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    
-    # Third party apps
+
+    # Third party
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
-    
+
     # Local apps
     'accounts',
     'schools',
@@ -43,7 +43,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # must be first
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -75,17 +75,11 @@ TEMPLATES = [
 WSGI_APPLICATION = 'school_report_saas.wsgi.application'
 
 # Database
-# Default to SQLite for easier local development; set DB_ENGINE=postgres in .env when PostgreSQL is available
-DB_ENGINE = config('DB_ENGINE', default='sqlite')
-# Database configuration
 if config('DATABASE_URL', default=None):
-    # Production database (Render)
-    import dj_database_url
     DATABASES = {
         'default': dj_database_url.parse(config('DATABASE_URL'))
     }
-elif config('DEBUG', default=True, cast=bool):
-    # Development database
+elif DEBUG:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
@@ -104,23 +98,15 @@ else:
         }
     }
 
-# Custom User Model
+# Custom User
 AUTH_USER_MODEL = 'accounts.User'
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
 # Internationalization
@@ -129,20 +115,16 @@ TIME_ZONE = 'Africa/Accra'
 USE_I18N = True
 USE_TZ = True
 
-# Static files (CSS, JavaScript, Images)
+# Static & Media
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
-
-# WhiteNoise configuration for production
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# REST Framework Configuration
+# REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -154,7 +136,7 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 50,
 }
 
-# JWT Settings
+# JWT
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=5),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
@@ -162,61 +144,37 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
-# CORS Settings - read allowed origins from environment for safer defaults
-# Set `CORS_ALLOWED_ORIGINS` env var to a comma-separated list like:
-#  https://elitetechreport.netlify.app,http://localhost:5173
-# If you need to allow all origins temporarily, set `CORS_ALLOW_ALL_ORIGINS=True` in env.
-CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='https://elitetechreport.netlify.app,http://localhost:5173').split(',')
-# Allow an override to permit all origins (use with caution)
+
+# CORS
+CORS_ALLOWED_ORIGINS = [h.strip() for h in config(
+    'CORS_ALLOWED_ORIGINS',
+    default='https://elitetechreport.netlify.app,http://localhost:5173'
+).split(',')]
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
 CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
-
-CORS_ALLOW_METHODS = [
-    'DELETE',
-    'GET',
-    'OPTIONS',
-    'PATCH',
-    'POST',
-    'PUT',
-]
-
+CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_HEADERS = [
-    'accept',
-    'accept-encoding',
-    'authorization',
-    'content-type',
-    'dnt',
-    'origin',
-    'user-agent',
-    'x-csrftoken',
-    'x-requested-with',
-    'cache-control',
+    'accept', 'accept-encoding', 'authorization', 'content-type',
+    'dnt', 'origin', 'user-agent', 'x-csrftoken',
+    'x-requested-with', 'cache-control',
 ]
+CORS_EXPOSE_HEADERS = ['content-type', 'authorization', 'x-total-count']
 
-CORS_EXPOSE_HEADERS = [
-    'content-type',
-    'authorization',
-    'x-total-count',
-]
-
-# X-Frame-Options: Allow iframe embedding for preview functionality
 X_FRAME_OPTIONS = 'SAMEORIGIN'
 
-# Cloudinary Configuration
+# Cloudinary
 CLOUDINARY_STORAGE = {
     'CLOUD_NAME': config('CLOUDINARY_CLOUD_NAME', default=''),
     'API_KEY': config('CLOUDINARY_API_KEY', default=''),
     'API_SECRET': config('CLOUDINARY_API_SECRET', default=''),
 }
 
-# Email Configuration
-if DEBUG and not config('EMAIL_HOST_USER', default=''):
-    # Development mode - use console backend
+# Email
+if DEBUG:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 else:
-    # Production mode - use SMTP
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-    
+
 EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
 EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
@@ -224,9 +182,14 @@ EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER or 'noreply@schoolreport.com')
 
-# Frontend URL for email templates
 FRONTEND_URL = config('FRONTEND_URL', default='https://elitetechreport.netlify.app')
 
-# Payment Configuration
+# Payment
 PAYSTACK_SECRET_KEY = config('PAYSTACK_SECRET_KEY', default='')
 PAYSTACK_PUBLIC_KEY = config('PAYSTACK_PUBLIC_KEY', default='')
+
+# Extra security (production only)
+if not DEBUG:
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
