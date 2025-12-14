@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from .models import Teacher
 from schools.serializers import SubjectSerializer
-from schools.models import Class
+from schools.models import Class, Subject
 from .email_utils import send_teacher_welcome_email
 import logging
 
