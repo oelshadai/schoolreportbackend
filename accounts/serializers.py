@@ -7,6 +7,23 @@ from datetime import date
 User = get_user_model()
 
 
+class UserSerializer(serializers.ModelSerializer):
+    """Serializer for the custom User model"""
+
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'first_name',
+            'last_name',
+            'email',
+            'phone_number',   # include if your User model has this field
+            'role',           # include if your User model has this field
+            'school'          # include if your User model links to School
+        ]
+        read_only_fields = ['id']
+
+
 class SchoolRegistrationSerializer(serializers.Serializer):
     """Serializer for self-registration of a new school and initial admin user"""
 
@@ -24,10 +41,8 @@ class SchoolRegistrationSerializer(serializers.Serializer):
     last_name = serializers.CharField(max_length=100, required=False, default='User')
 
     def validate(self, attrs):
-        # ✅ Ensure passwords match
         if attrs['password'] != attrs['password_confirm']:
             raise serializers.ValidationError({"password": "Passwords do not match"})
-        # ✅ Ensure admin email is unique
         if User.objects.filter(email=attrs['admin_email']).exists():
             raise serializers.ValidationError({"admin_email": "Email already in use"})
         return attrs
@@ -40,16 +55,15 @@ class SchoolRegistrationSerializer(serializers.Serializer):
         admin_email = validated_data.pop('admin_email')
         levels = validated_data.pop('levels', [])
 
-        # ✅ Create School
+        # Create School
         school = School.objects.create(
             name=school_name,
             email=admin_email,
             subscription_plan='FREE',
-            # If your School model has a levels field, save it here
-            # levels=levels
+            # levels=levels  # uncomment if School model has this field
         )
 
-        # ✅ Academic year & term setup
+        # Academic year & term
         today = date.today()
         year_span = f"{today.year}/{today.year+1}" if today.month >= 9 else f"{today.year-1}/{today.year}"
         academic_year = AcademicYear.objects.create(
@@ -68,7 +82,7 @@ class SchoolRegistrationSerializer(serializers.Serializer):
             total_days=0
         )
 
-        # ✅ Default grading scale
+        # Default grading scale
         default_grades = [
             GradingScale(school=school, grade='A', min_score=80, max_score=100, remark='Excellent'),
             GradingScale(school=school, grade='B', min_score=70, max_score=79, remark='Very Good'),
@@ -79,7 +93,7 @@ class SchoolRegistrationSerializer(serializers.Serializer):
         ]
         GradingScale.objects.bulk_create(default_grades)
 
-        # ✅ Default subjects
+        # Default subjects
         base_subjects = [
             Subject(name='English Language', code='ENG', category='BOTH'),
             Subject(name='Mathematics', code='MATH', category='BOTH'),
@@ -89,7 +103,7 @@ class SchoolRegistrationSerializer(serializers.Serializer):
         ]
         Subject.objects.bulk_create(base_subjects, ignore_conflicts=True)
 
-        # ✅ Create Admin User
+        # Create Admin User
         user = User.objects.create_user(
             email=admin_email,
             password=password,
