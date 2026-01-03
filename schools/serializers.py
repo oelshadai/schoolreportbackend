@@ -22,6 +22,9 @@ class SchoolSettingsSerializer(serializers.ModelSerializer):
             # System Configuration
             'score_entry_mode', 'is_active',
             
+            # Terminal Report Settings
+            'term_closing_date', 'term_reopening_date', 'show_promotion_on_terminal',
+            
             # Report Template Settings
             'report_template', 'report_header_text', 'report_footer_text',
             'show_class_average', 'show_position_in_class', 'show_attendance',

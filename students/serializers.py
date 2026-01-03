@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Student, Attendance, Behaviour, StudentPromotion
+from .models import Student, Attendance, Behaviour, StudentPromotion, DailyAttendance
 
 
 class StudentSerializer(serializers.ModelSerializer):
@@ -15,15 +15,43 @@ class StudentSerializer(serializers.ModelSerializer):
 
 class StudentCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating students"""
+    generated_password = serializers.CharField(read_only=True)
+    generated_username = serializers.CharField(read_only=True)
     
     class Meta:
         model = Student
         exclude = ['school']
+        
+    def create(self, validated_data):
+        student = super().create(validated_data)
+        # Return the generated credentials in the response
+        student.generated_password = student.password
+        student.generated_username = student.username
+        return student
 
 
 class BulkStudentUploadSerializer(serializers.Serializer):
     """Serializer for bulk student upload via Excel"""
     file = serializers.FileField()
+
+
+class DailyAttendanceSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.get_full_name', read_only=True)
+    student_id = serializers.CharField(source='student.student_id', read_only=True)
+    class_name = serializers.CharField(source='class_instance.full_name', read_only=True)
+    
+    class Meta:
+        model = DailyAttendance
+        fields = '__all__'
+        read_only_fields = ['created_at', 'updated_at']
+
+
+class BulkAttendanceSerializer(serializers.Serializer):
+    """Serializer for bulk attendance creation"""
+    records = serializers.ListField(
+        child=serializers.DictField(),
+        allow_empty=False
+    )
 
 
 class AttendanceSerializer(serializers.ModelSerializer):

@@ -23,6 +23,7 @@ def api_root(request):
             'teachers': '/api/teachers/',
             'scores': '/api/scores/',
             'reports': '/api/reports/',
+            'assignments': '/api/assignments/',
             'subscriptions': '/api/subscriptions/',
             'cors_test': '/api/cors-test/',
             'health': '/api/health/',
@@ -72,7 +73,9 @@ urlpatterns = [
     path('api/teachers/', include('teachers.urls')),
     path('api/scores/', include('scores.urls')),
     path('api/reports/', include('reports.urls')),
+    path('api/assignments/', include('assignments.urls')),
     path('api/subscriptions/', include('subscriptions.urls')),
+    path('api/', include('notifications.urls')),
 ]
 
 if settings.DEBUG:

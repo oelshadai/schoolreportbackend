@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 from students.models import Student
 from schools.models import Term
 
@@ -25,7 +26,7 @@ class ReportCard(models.Model):
     report_code = models.CharField(max_length=100, unique=True)
     
     # Metadata
-    generated_by = models.ForeignKey('accounts.User', on_delete=models.SET_NULL, null=True, related_name='generated_reports')
+    generated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='generated_reports')
     generated_at = models.DateTimeField(null=True, blank=True)
     published_at = models.DateTimeField(null=True, blank=True)
     

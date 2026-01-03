@@ -20,23 +20,24 @@ class ContinuousAssessmentViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
-        if user.school:
-            queryset = ContinuousAssessment.objects.filter(student__school=user.school)
+        if not hasattr(user, 'school') or not user.school:
+            return ContinuousAssessment.objects.none()
             
-            term_id = self.request.query_params.get('term_id')
-            if term_id:
-                queryset = queryset.filter(term_id=term_id)
-            
-            student_id = self.request.query_params.get('student_id')
-            if student_id:
-                queryset = queryset.filter(student_id=student_id)
-            
-            class_subject_id = self.request.query_params.get('class_subject_id')
-            if class_subject_id:
-                queryset = queryset.filter(class_subject_id=class_subject_id)
-            
-            return queryset
-        return ContinuousAssessment.objects.none()
+        queryset = ContinuousAssessment.objects.filter(student__school=user.school)
+        
+        term_id = self.request.query_params.get('term_id')
+        if term_id:
+            queryset = queryset.filter(term_id=term_id)
+        
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+        
+        class_subject_id = self.request.query_params.get('class_subject_id')
+        if class_subject_id:
+            queryset = queryset.filter(class_subject_id=class_subject_id)
+        
+        return queryset
 
 
 class ExamScoreViewSet(viewsets.ModelViewSet):
@@ -47,23 +48,24 @@ class ExamScoreViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
-        if user.school:
-            queryset = ExamScore.objects.filter(student__school=user.school)
+        if not hasattr(user, 'school') or not user.school:
+            return ExamScore.objects.none()
             
-            term_id = self.request.query_params.get('term_id')
-            if term_id:
-                queryset = queryset.filter(term_id=term_id)
-            
-            student_id = self.request.query_params.get('student_id')
-            if student_id:
-                queryset = queryset.filter(student_id=student_id)
-            
-            class_subject_id = self.request.query_params.get('class_subject_id')
-            if class_subject_id:
-                queryset = queryset.filter(class_subject_id=class_subject_id)
-            
-            return queryset
-        return ExamScore.objects.none()
+        queryset = ExamScore.objects.filter(student__school=user.school)
+        
+        term_id = self.request.query_params.get('term_id')
+        if term_id:
+            queryset = queryset.filter(term_id=term_id)
+        
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+        
+        class_subject_id = self.request.query_params.get('class_subject_id')
+        if class_subject_id:
+            queryset = queryset.filter(class_subject_id=class_subject_id)
+        
+        return queryset
 
 
 class SubjectResultViewSet(viewsets.ModelViewSet):
@@ -74,19 +76,20 @@ class SubjectResultViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
-        if user.school:
-            queryset = SubjectResult.objects.filter(student__school=user.school)
+        if not hasattr(user, 'school') or not user.school:
+            return SubjectResult.objects.none()
             
-            term_id = self.request.query_params.get('term_id')
-            if term_id:
-                queryset = queryset.filter(term_id=term_id)
-            
-            student_id = self.request.query_params.get('student_id')
-            if student_id:
-                queryset = queryset.filter(student_id=student_id)
-            
-            return queryset
-        return SubjectResult.objects.none()
+        queryset = SubjectResult.objects.filter(student__school=user.school)
+        
+        term_id = self.request.query_params.get('term_id')
+        if term_id:
+            queryset = queryset.filter(term_id=term_id)
+        
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+        
+        return queryset
 
 
 class TermResultViewSet(viewsets.ModelViewSet):
@@ -97,19 +100,20 @@ class TermResultViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
-        if user.school:
-            queryset = TermResult.objects.filter(student__school=user.school)
+        if not hasattr(user, 'school') or not user.school:
+            return TermResult.objects.none()
             
-            term_id = self.request.query_params.get('term_id')
-            if term_id:
-                queryset = queryset.filter(term_id=term_id)
-            
-            class_id = self.request.query_params.get('class_id')
-            if class_id:
-                queryset = queryset.filter(class_instance_id=class_id)
-            
-            return queryset
-        return TermResult.objects.none()
+        queryset = TermResult.objects.filter(student__school=user.school)
+        
+        term_id = self.request.query_params.get('term_id')
+        if term_id:
+            queryset = queryset.filter(term_id=term_id)
+        
+        class_id = self.request.query_params.get('class_id')
+        if class_id:
+            queryset = queryset.filter(class_instance_id=class_id)
+        
+        return queryset
     
     @action(detail=False, methods=['post'])
     def calculate_positions(self, request):

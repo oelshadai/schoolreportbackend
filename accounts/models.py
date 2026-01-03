@@ -36,6 +36,7 @@ class User(AbstractUser):
         ('SCHOOL_ADMIN', 'School Admin'),
         ('PRINCIPAL', 'Principal/Headmaster'),
         ('TEACHER', 'Teacher'),
+        ('STUDENT', 'Student'),
     ]
     
     username = None
@@ -78,3 +79,7 @@ class User(AbstractUser):
     @property
     def is_teacher(self):
         return self.role == 'TEACHER'
+    
+    @property
+    def is_student(self):
+        return self.role == 'STUDENT'

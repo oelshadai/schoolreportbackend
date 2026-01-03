@@ -25,6 +25,9 @@ Pillow>=9.0.0,<11.0.0
 qrcode[pil]==7.4.2
 reportlab==4.0.7
 
+# Excel file processing
+openpyxl==3.1.2
+
 # Utilities
 python-decouple==3.8
 python-dotenv==1.0.0

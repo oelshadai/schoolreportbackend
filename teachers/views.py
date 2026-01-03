@@ -202,7 +202,22 @@ class TeacherViewSet(viewsets.ModelViewSet):
                 # Prepare response with teacher data
                 from .serializers import TeacherSerializer
                 response_data = TeacherSerializer(teacher).data
-                response_data['message'] = f"Teacher {teacher.get_full_name()} created successfully! Welcome email with login credentials has been sent to {teacher.user.email}."
+                
+                # Add login credentials to response
+                response_data['login_credentials'] = {
+                    'email': teacher.user.email,
+                    'password': getattr(teacher, '_plain_password', 'Password was set during creation'),
+                    'login_url': '/login',
+                    'note': 'Use EMAIL as username, not employee ID'
+                }
+                
+                if hasattr(teacher, '_assigned_class') and teacher._assigned_class:
+                    response_data['assigned_class'] = {
+                        'id': teacher._assigned_class.id,
+                        'name': str(teacher._assigned_class)
+                    }
+                
+                response_data['message'] = f"Teacher {teacher.get_full_name()} created successfully! Login credentials are provided below."
                 
                 return Response(
                     response_data, 

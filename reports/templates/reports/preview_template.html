@@ -12,44 +12,47 @@
             font-family: Arial, sans-serif;
             margin: 0;
             background-color: #f5f5f5;
-            font-size: 14px;
-            line-height: 1.4;
+            font-size: 12px;
+            line-height: 1.3;
             -webkit-text-size-adjust: 100%;
         }
         .page-wrap {
-            padding: 12px;
+            padding: 8px;
         }
         .preview-container {
-            width: 100%;
+            width: 210mm;
+            height: 297mm;
             max-width: 210mm;
             margin: 0 auto;
             background: white;
-            padding: 16px;
+            padding: 12mm;
             box-shadow: 0 10px 24px rgba(0,0,0,0.08);
-            border-radius: 12px;
+            border-radius: 8px;
             border: 2px solid #000;
+            box-sizing: border-box;
+            overflow: hidden;
         }
         .preview-header {
             background: #0b0b0b;
             color: white;
-            padding: 16px;
-            margin: -16px -16px 16px -16px;
-            border-radius: 12px 12px 0 0;
+            padding: 8px;
+            margin: -12mm -12mm 8px -12mm;
+            border-radius: 8px 8px 0 0;
             text-align: center;
         }
         .preview-header h1 {
             margin: 0;
-            font-size: 20px;
+            font-size: 16px;
         }
         .preview-note {
             background: #fff3cd;
             border: 1px solid #f59e0b;
-            padding: 10px 12px;
-            border-radius: 8px;
-            margin-bottom: 16px;
+            padding: 6px 8px;
+            border-radius: 4px;
+            margin-bottom: 8px;
             text-align: center;
             color: #92400e;
-            font-size: 13px;
+            font-size: 11px;
         }
         .report-main-header {
             display: flex;
@@ -83,8 +86,13 @@
             transform: translateX(-50%);
             width: 70%;
             height: 380px;
-            opacity: 0.07;
+            opacity: 0.05;
             pointer-events: none;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+        .watermark.default {
             background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect x="95" y="10" width="10" height="180" fill="%23000"/><rect x="10" y="95" width="180" height="10" fill="%23000"/><circle cx="100" cy="100" r="85" fill="none" stroke="%23000" stroke-width="6"/></svg>') center/contain no-repeat;
         }
         .header-center {
@@ -125,16 +133,67 @@
         }
         .student-info {
             margin: 15px 0;
-            line-height: 1.8;
+            line-height: 2.2;
+            letter-spacing: 0.4px;
+            border: 1px solid #000;
+            padding: 15px 20px;
+            background: #fafafa;
+            display: flex;
+            gap: 20px;
+        }
+        .student-details {
+            flex: 1;
+        }
+        .student-photo {
+            width: 100px;
+            height: 120px;
+            border: 2px solid #000;
+            background: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: #666;
+            flex-shrink: 0;
+        }
+        .student-photo img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
         .student-info-row {
             margin: 8px 0;
-            font-size: 11px;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
         }
-        .info-label {
-            display: inline-block;
-            min-width: 120px;
-            font-weight: normal;
+        .info-left {
+            text-align: left;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            flex: 1;
+        }
+        .info-center {
+            text-align: center;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            flex: 1;
+        }
+        .info-right {
+            text-align: right;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            flex: 1;
+        }
+        .three-column-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 8px 0;
+            font-size: 12px;
+            font-weight: 600;
         }
         .table-wrap {
             width: 100%;
@@ -147,44 +206,85 @@
         .scores-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 12px;
-            min-width: 560px; /* keep columns readable on phones */
+            font-size: 11px;
+            margin: 10px 0;
+            letter-spacing: 0.2px;
         }
         .scores-table th,
         .scores-table td {
             border: 1px solid #000;
-            padding: 6px 4px;
+            padding: 4px 3px;
             text-align: center;
         }
         .scores-table th {
             background-color: #f0f0f0;
             font-weight: bold;
-            font-size: 11px;
+            font-size: 10px;
         }
         .scores-table .subject-name {
             text-align: left;
             padding-left: 8px;
         }
         .attendance-conduct {
-            margin: 15px 0;
+            margin: 10px 0;
             font-size: 11px;
-            line-height: 2;
+            line-height: 1.6;
+            letter-spacing: 0.2px;
         }
-        .conduct-section {
-            margin: 15px 0;
+        .conduct-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 8px 0;
         }
-        .conduct-section h4 {
-            margin: 10px 0 5px 0;
-            font-size: 12px;
+        .conduct-left {
+            text-align: left;
             font-weight: bold;
+            flex: 1;
+        }
+        .conduct-center {
+            text-align: center;
+            font-weight: bold;
+            flex: 1;
+        }
+        .conduct-right {
+            text-align: right;
+            font-weight: bold;
+            flex: 1;
         }
         .dotted-line {
             border-bottom: 1px dotted #000;
-            height: 20px;
-            margin: 5px 0;
+            height: 12px;
+            margin: 2px 0;
         }
         .remarks-section {
-            margin: 20px 0;
+            margin: 15px 0;
+        }
+        .remarks-header {
+            font-weight: bold;
+            margin-bottom: 8px;
+            font-size: 11px;
+        }
+        .signature-section {
+            margin-top: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+        .signature-box {
+            text-align: center;
+            flex: 1;
+            margin: 0 10px;
+        }
+        .signature-line {
+            border-bottom: 1px solid #000;
+            height: 40px;
+            margin-bottom: 5px;
+        }
+        .signature-label {
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
         }
         /* Mobile adjustments */
         @media (max-width: 680px) {
@@ -247,26 +347,40 @@
         </div>
 
         <div class="student-info">
-            <div class="student-info-row">
-                <span class="info-label">NAME:................................................................</span>
-                <span style="margin-left: 50px;">CLASS: BASIC........</span>
+            <div class="student-details">
+                <div class="student-info-row">
+                    <span class="info-left">NAME: Sample Student</span>
+                    <span class="info-right">CLASS: BASIC 7A</span>
+                </div>
+                <div class="three-column-row">
+                    <span class="info-left">ACADEMIC YEAR: {{ school.current_academic_year|default:"2023/2024" }}</span>
+                    <span class="info-center">TERM: THREE (3)</span>
+                    <span class="info-right">CLASS NO: 15</span>
+                </div>
+                <div class="student-info-row">
+                    <span class="info-left">CLASS TEACHER: Mr. John Doe</span>
+                    <span class="info-right">POSITION: 5th</span>
+                </div>
+                {% if school.term_closing_date or school.term_reopening_date %}
+                <div class="student-info-row">
+                    {% if school.term_closing_date %}<span class="info-left">TERM CLOSES: {{ school.term_closing_date|date:"d/m/Y" }}</span>{% endif %}
+                    {% if school.term_reopening_date %}<span class="info-right">TERM REOPENS: {{ school.term_reopening_date|date:"d/m/Y" }}</span>{% endif %}
+                </div>
+                {% endif %}
             </div>
-            <div class="student-info-row">
-                <span class="info-label">ACADEMIC YEAR: {{ school.current_academic_year|default:"2023/2024" }}</span>
-                <span style="margin-left: 50px;">TERM: THREE (3)</span>
-                <span style="margin-left: 50px;">CLASS NO........</span>
+            {% if school.show_student_photos %}
+            <div class="student-photo">
+                STUDENT<br>PHOTO
             </div>
-            <div class="student-info-row">
-                <span class="info-label">CLASS TEACHER:......................................................................</span>
-                <span style="margin-left: 50px;">POSITION:.......</span>
-            </div>
-            <div class="student-info-row">
-                <span class="info-label">REOPENING DATE:...................................................</span>
-            </div>
+            {% endif %}
         </div>
 
         <div class="watermark-wrapper">
-            <div class="watermark"></div>
+            {% if school.logo %}
+            <div class="watermark" style="background-image: url('{{ school.logo.url }}');"></div>
+            {% else %}
+            <div class="watermark default"></div>
+            {% endif %}
             <div class="table-wrap">
             <table class="scores-table">
                 <thead>
@@ -280,6 +394,19 @@
                     </tr>
                 </thead>
             <tbody>
+                {% if class_subjects %}
+                    {% for subject in class_subjects %}
+                    <tr>
+                        <td class="subject-name">{{ subject.name }}</td>
+                        <td>{{ subject.class_score|default:"-" }}</td>
+                        <td>{{ subject.exam_score|default:"-" }}</td>
+                        <td>{{ subject.total_score|default:"-" }}</td>
+                        {% if school.show_position_in_class %}<td>{{ subject.position|default:"-" }}</td>{% endif %}
+                        <td>{{ subject.remark|default:"-" }}</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                <!-- Sample data for preview -->
                 <tr>
                     <td class="subject-name">English Language</td>
                     <td>42</td>
@@ -320,37 +447,14 @@
                     {% if school.show_position_in_class %}<td>1st</td>{% endif %}
                     <td>{% with t=85 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
                 </tr>
-                <tr>
-                    <td class="subject-name">Ghanaian Language</td>
-                    <td>39</td>
-                    <td>33</td>
-                    <td>72</td>
-                    {% if school.show_position_in_class %}<td>7th</td>{% endif %}
-                    <td>{% with t=72 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
-                </tr>
-                <tr>
-                    <td class="subject-name">Computing</td>
-                    <td>46</td>
-                    <td>42</td>
-                    <td>88</td>
-                    {% if school.show_position_in_class %}<td>1st</td>{% endif %}
-                    <td>{% with t=88 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
-                </tr>
-                <tr>
-                    <td class="subject-name">Career Technology</td>
-                    <td>40</td>
-                    <td>35</td>
-                    <td>75</td>
-                    {% if school.show_position_in_class %}<td>8th</td>{% endif %}
-                    <td>{% with t=75 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
-                </tr>
-                <tr>
-                    <td class="subject-name">Creative Arts</td>
-                    <td>38</td>
-                    <td>32</td>
-                    <td>70</td>
-                    {% if school.show_position_in_class %}<td>9th</td>{% endif %}
-                    <td>{% with t=70 %}{% if t >= school.grade_scale_a_min %}Excellent{% elif t >= school.grade_scale_b_min %}Very Good{% elif t >= school.grade_scale_c_min %}Good{% elif t >= school.grade_scale_d_min %}Average{% else %}Poor{% endif %}{% endwith %}</td>
+                {% endif %}
+                <tr style="background-color: #f0f0f0; font-weight: bold; border-top: 2px solid #000;">
+                    <td class="subject-name">TOTAL MARKS</td>
+                    <td>{{ total_class_score|default:"212" }}</td>
+                    <td>{{ total_exam_score|default:"190" }}</td>
+                    <td>{{ total_score|default:"402" }}</td>
+                    {% if school.show_position_in_class %}<td>-</td>{% endif %}
+                    <td>{{ overall_grade|default:"Very Good" }}</td>
                 </tr>
             </tbody>
             </table>
@@ -358,26 +462,47 @@
         </div>
 
         <div class="attendance-conduct">
-            <p><strong>ATTENDANCE:</strong>.....................OUT OF:..................PROMOTED TO:..................</p>
+            {% if school.show_promotion_on_terminal %}
+            <div class="student-info-row">
+                <span class="info-label">ATTENDANCE: 85 OUT OF: 90</span>
+                <span class="info-right">PROMOTED TO: BASIC 8</span>
+            </div>
+            {% else %}
+            <div class="student-info-row">
+                <span class="info-label">ATTENDANCE: 85 OUT OF: 90</span>
+            </div>
+            {% endif %}
             
-            <div class="conduct-section">
-                <h4>CONDUCT:</h4>
-                <div class="dotted-line"></div>
-                <div class="dotted-line"></div>
-                
-                <h4>ATTITUDE:</h4>
-                <div class="dotted-line"></div>
-                <div class="dotted-line"></div>
-                <p style="text-align: right; margin-top: 10px;"><strong>INTEREST:</strong></p>
-                <div class="dotted-line"></div>
-                <div class="dotted-line"></div>
+            <div class="conduct-row">
+                <span class="conduct-left">CONDUCT: Excellent</span>
+                <span class="conduct-center">ATTITUDE: Very Good</span>
+                <span class="conduct-right">INTEREST: Reading, Dancing</span>
+            </div>
+            <div class="dotted-line"></div>
+            
+            <div class="remarks-section">
+                <div class="remarks-header">CLASS TEACHER'S REMARKS:</div>
+                <div style="margin: 8px 0; font-size: 11px; line-height: 1.6;">Sample Student has shown remarkable improvement this term. She demonstrates excellent understanding in Mathematics and Science subjects. Her participation in class discussions is commendable and she helps her peers when needed.</div>
             </div>
             
             <div class="remarks-section">
-                <p><strong>CLASS TEACHER'S REMARKS:.................................................................</strong></p>
-                <div class="dotted-line"></div>
-                <div class="dotted-line"></div>
-                <div class="dotted-line"></div>
+                <div class="remarks-header">HEAD TEACHER'S REMARKS:</div>
+                <div style="margin: 8px 0; font-size: 11px; line-height: 1.6;">A well-behaved student with good academic performance. Keep up the excellent work and continue to strive for excellence in all subjects.</div>
+            </div>
+            
+            <div class="signature-section">
+                <div class="signature-box">
+                    <div class="signature-line"></div>
+                    <div class="signature-label">Class Teacher</div>
+                </div>
+                <div class="signature-box">
+                    <div class="signature-line"></div>
+                    <div class="signature-label">Head Teacher</div>
+                </div>
+                <div class="signature-box">
+                    <div class="signature-line"></div>
+                    <div class="signature-label">Parent/Guardian</div>
+                </div>
             </div>
         </div>
 

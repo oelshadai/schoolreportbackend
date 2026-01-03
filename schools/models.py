@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 
@@ -102,6 +103,22 @@ class School(models.Model):
     grade_scale_d_min = models.IntegerField(default=50, help_text='Minimum score for grade D')
     grade_scale_f_min = models.IntegerField(default=0, help_text='Minimum score for grade F')
     
+    # Terminal Report Settings
+    term_closing_date = models.DateField(
+        null=True, 
+        blank=True,
+        help_text='Term closing date to appear on terminal reports'
+    )
+    term_reopening_date = models.DateField(
+        null=True, 
+        blank=True,
+        help_text='Term reopening date to appear on terminal reports'
+    )
+    show_promotion_on_terminal = models.BooleanField(
+        default=True,
+        help_text='Show promotion status on terminal reports'
+    )
+    
     # Subscription
     is_active = models.BooleanField(default=True)
     subscription_plan = models.CharField(max_length=50, default='FREE')
@@ -196,7 +213,7 @@ class Class(models.Model):
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='classes')
     level = models.CharField(max_length=20, choices=LEVEL_CHOICES)
     section = models.CharField(max_length=10, blank=True)  # e.g., 'A', 'B', 'Gold', 'Diamond'
-    class_teacher = models.ForeignKey('accounts.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_classes')
+    class_teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_classes')
     capacity = models.IntegerField(default=30)
     created_at = models.DateTimeField(auto_now_add=True)
     
@@ -246,7 +263,7 @@ class ClassSubject(models.Model):
     
     class_instance = models.ForeignKey(Class, on_delete=models.CASCADE, related_name='class_subjects')
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='assigned_classes')
-    teacher = models.ForeignKey('accounts.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='teaching_subjects')
+    teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='teaching_subjects')
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:

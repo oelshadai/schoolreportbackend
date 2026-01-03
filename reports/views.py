@@ -915,23 +915,26 @@ class ReportCardViewSet(viewsets.ModelViewSet):
         import random
         
         try:
-            # Check for token in query params for preview links
-            token_param = request.GET.get('token')
-            if token_param and not request.user.is_authenticated:
-                from rest_framework_simplejwt.tokens import UntypedToken
-                from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
-                from django.contrib.auth import get_user_model
-                
-                try:
-                    UntypedToken(token_param)
+            # Handle token authentication from query params for direct browser access
+            if not request.user.is_authenticated:
+                token_param = request.GET.get('token')
+                if token_param:
                     from rest_framework_simplejwt.authentication import JWTAuthentication
-                    jwt_auth = JWTAuthentication()
-                    validated_token = jwt_auth.get_validated_token(token_param)
-                    user = jwt_auth.get_user(validated_token)
-                    request.user = user
-                except (InvalidToken, TokenError):
+                    from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+                    
+                    try:
+                        jwt_auth = JWTAuthentication()
+                        validated_token = jwt_auth.get_validated_token(token_param)
+                        user = jwt_auth.get_user(validated_token)
+                        request.user = user
+                    except (InvalidToken, TokenError):
+                        return Response(
+                            {"error": "Invalid token"},
+                            status=status.HTTP_401_UNAUTHORIZED
+                        )
+                else:
                     return Response(
-                        {"error": "Invalid token"},
+                        {"error": "Authentication required"},
                         status=status.HTTP_401_UNAUTHORIZED
                     )
             
@@ -1081,6 +1084,7 @@ class ReportCardViewSet(viewsets.ModelViewSet):
     def _create_sample_report_data(self, school):
         """Create sample data for template preview"""
         from collections import namedtuple
+        from schools.models import Subject, ClassSubject
         import random
         
         # Sample student data
@@ -1130,8 +1134,22 @@ class ReportCardViewSet(viewsets.ModelViewSet):
         
         sample_term = SampleTerm()
         
-        # Sample subject results
-        subjects = ['English Language', 'Mathematics', 'Science', 'Social Studies', 'ICT']
+        # Get actual subjects from the school or use defaults
+        subjects = ['English Language', 'Mathematics', 'Integrated Science', 'Social Studies', 'Religious & Moral Edu.']
+        
+        # Try to get subjects from school's class subjects if available
+        try:
+            from schools.models import ClassSubject
+            class_subjects = ClassSubject.objects.filter(
+                class_instance__school=school
+            ).select_related('subject')[:8]
+            
+            if class_subjects.exists():
+                subjects = [cs.subject.name for cs in class_subjects]
+        except Exception:
+            pass  # Use default subjects
+        
+        # Sample subject results using actual subjects
         SampleSubjectResult = namedtuple('SampleSubjectResult', ['subject_name', 'class_score', 'exam_score', 'total_score', 'grade', 'position'])
         
         sample_results = []
@@ -1185,13 +1203,8 @@ class ReportCardViewSet(viewsets.ModelViewSet):
         # Sample behaviour with all required fields
         SampleBehaviour = namedtuple('SampleBehaviour', ['conduct', 'attitude', 'interest', 'class_teacher_remarks'])
         sample_behaviour = SampleBehaviour(
-            conduct='GOOD',
-            attitude='EXCELLENT',
-            interest='VERY GOOD',
-            class_teacher_remarks='Student has shown good progress this term. Continue to work hard and maintain good behavior.'
-        )
-        sample_behaviour = SampleBehaviour(
             conduct='Good',
+            attitude='Excellent', 
             interest='Very Good',
             class_teacher_remarks='Student shows excellent potential and good behavior in class.'
         )
@@ -1214,67 +1227,95 @@ def template_preview_pdf(request):
     from django.http import HttpResponse, JsonResponse
     from rest_framework_simplejwt.authentication import JWTAuthentication
     from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+    import traceback
 
-    # Authenticate via Authorization header already handled by middleware OR token query param
-    if not request.user.is_authenticated:
-        token_param = request.GET.get('token')
-        if token_param:
+    try:
+        # Authenticate via Authorization header already handled by middleware OR token query param
+        if not request.user.is_authenticated:
+            token_param = request.GET.get('token')
+            if token_param:
+                try:
+                    jwt_auth = JWTAuthentication()
+                    validated = jwt_auth.get_validated_token(token_param)
+                    user = jwt_auth.get_user(validated)
+                    request.user = user
+                except (InvalidToken, TokenError) as e:
+                    return JsonResponse({'error': f'Invalid token: {str(e)}'}, status=401)
+            else:
+                return JsonResponse({'error': 'Authentication required'}, status=401)
+
+        school = getattr(request.user, 'school', None)
+        if not school:
+            return JsonResponse({'error': 'User must be associated with a school'}, status=400)
+
+        # Reuse helper via a temporary viewset instance
+        temp_vs = ReportCardViewSet()
+        sample_data = temp_vs._create_sample_report_data(school)
+
+        fmt = request.GET.get('format', 'html')
+        context = {
+            'school': school,
+            'student': sample_data['student'],
+            'term': sample_data['term'],
+            'subject_results': sample_data['subject_results'],
+            'term_result': sample_data['term_result'],
+            'attendance': sample_data['attendance'],
+            'behaviour': sample_data['behaviour'],
+            'is_preview': True
+        }
+
+        if fmt == 'pdf':
             try:
-                jwt_auth = JWTAuthentication()
-                validated = jwt_auth.get_validated_token(token_param)
-                user = jwt_auth.get_user(validated)
-                request.user = user
-            except (InvalidToken, TokenError):
-                return JsonResponse({'error': 'Invalid token'}, status=401)
+                from .pdf_generator import ReportGenerator
+                class ResultObj:
+                    def __init__(self, subject, class_score_50, exam_score_50):
+                        self.class_subject = type('X', (), {'subject': type('S', (), {'name': subject})()})
+                        # Double class score so generator's sum/2 -> 50% value
+                        self.task = class_score_50 * 2
+                        self.homework = 0
+                        self.group_work = 0
+                        self.project_work = 0
+                        self.class_test = 0
+                        self.exam_score = exam_score_50
+
+                subj_results = [ResultObj(r.subject_name, r.class_score, r.exam_score) for r in sample_data['subject_results']]
+                generator = ReportGenerator(sample_data['student'], school, sample_data['term'])
+                pdf_buffer = generator.generate_pdf(
+                    subj_results,
+                    sample_data['term_result'],
+                    sample_data['attendance'],
+                    sample_data['behaviour'],
+                    'PREVIEW'
+                )
+                resp = HttpResponse(pdf_buffer.getvalue(), content_type='application/pdf')
+                resp['Content-Disposition'] = 'inline; filename="template_preview.pdf"'
+                # Ensure no X-Frame-Options header for iframe embedding
+                resp['X-Frame-Options'] = 'ALLOWALL'
+                return resp
+            except Exception as pdf_error:
+                # If PDF generation fails, return error as JSON
+                return JsonResponse({
+                    'error': f'PDF generation failed: {str(pdf_error)}',
+                    'traceback': traceback.format_exc()
+                }, status=500)
         else:
-            return JsonResponse({'error': 'Authentication required'}, status=401)
-
-    school = getattr(request.user, 'school', None)
-    if not school:
-        return JsonResponse({'error': 'User must be associated with a school'}, status=400)
-
-    # Reuse helper via a temporary viewset instance
-    temp_vs = ReportCardViewSet()
-    sample_data = temp_vs._create_sample_report_data(school)
-
-    fmt = request.GET.get('format', 'html')
-    context = {
-        'school': school,
-        'student': sample_data['student'],
-        'term': sample_data['term'],
-        'subject_results': sample_data['subject_results'],
-        'term_result': sample_data['term_result'],
-        'attendance': sample_data['attendance'],
-        'behaviour': sample_data['behaviour'],
-        'is_preview': True
-    }
-
-    if fmt == 'pdf':
-        from .pdf_generator import ReportGenerator
-        class ResultObj:
-            def __init__(self, subject, class_score_50, exam_score_50):
-                self.class_subject = type('X', (), {'subject': type('S', (), {'name': subject})()})
-                # Double class score so generator's sum/2 -> 50% value
-                self.task = class_score_50 * 2
-                self.homework = 0
-                self.group_work = 0
-                self.project_work = 0
-                self.class_test = 0
-                self.exam_score = exam_score_50
-
-        subj_results = [ResultObj(r.subject_name, r.class_score, r.exam_score) for r in sample_data['subject_results']]
-        generator = ReportGenerator(sample_data['student'], school, sample_data['term'])
-        pdf_buffer = generator.generate_pdf(
-            subj_results,
-            sample_data['term_result'],
-            sample_data['attendance'],
-            sample_data['behaviour'],
-            'PREVIEW'
-        )
-        resp = HttpResponse(pdf_buffer.getvalue(), content_type='application/pdf')
-        resp['Content-Disposition'] = 'inline; filename="template_preview.pdf"'
-        return resp
-    else:
-        from django.template.loader import render_to_string
-        html = render_to_string('reports/preview_template.html', context)
-        return HttpResponse(html, content_type='text/html')
+            try:
+                from django.template.loader import render_to_string
+                html = render_to_string('reports/preview_template.html', context)
+                resp = HttpResponse(html, content_type='text/html')
+                # Ensure no X-Frame-Options header for iframe embedding
+                resp['X-Frame-Options'] = 'ALLOWALL'
+                return resp
+            except Exception as html_error:
+                # If HTML generation fails, return error as JSON
+                return JsonResponse({
+                    'error': f'HTML generation failed: {str(html_error)}',
+                    'traceback': traceback.format_exc()
+                }, status=500)
+                
+    except Exception as e:
+        # Catch any other unexpected errors
+        return JsonResponse({
+            'error': f'Preview generation failed: {str(e)}',
+            'traceback': traceback.format_exc()
+        }, status=500)

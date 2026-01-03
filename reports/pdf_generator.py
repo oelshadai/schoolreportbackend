@@ -269,9 +269,32 @@ class ReportGenerator:
         elements.append(Spacer(1, 0.08*inch))
 
         # Attendance and Additional Sections
-        attendance_info = f"ATTENDANCE:...{getattr(attendance, 'days_present', '')}...OUT OF:...{getattr(attendance, 'total_days', '')}...PROMOTED TO:..."
+        # Check if promotion should be shown and get term dates
+        show_promotion = getattr(self.school, 'show_promotion_on_terminal', True)
+        closing_date = getattr(self.school, 'term_closing_date', None)
+        reopening_date = getattr(self.school, 'term_reopening_date', None)
+        
+        if show_promotion:
+            attendance_info = f"ATTENDANCE:...{getattr(attendance, 'days_present', '')}...OUT OF:...{getattr(attendance, 'total_days', '')}...PROMOTED TO:..."
+        else:
+            attendance_info = f"ATTENDANCE:...{getattr(attendance, 'days_present', '')}...OUT OF:...{getattr(attendance, 'total_days', '')}"
+        
         elements.append(Paragraph(attendance_info, styles['Normal']))
         elements.append(Spacer(1, 0.08*inch))
+        
+        # Add term dates if available
+        if closing_date or reopening_date:
+            date_info = ""
+            if closing_date:
+                date_info += f"TERM CLOSES: {closing_date.strftime('%d/%m/%Y')}"
+            if reopening_date:
+                if date_info:
+                    date_info += "    "
+                date_info += f"TERM REOPENS: {reopening_date.strftime('%d/%m/%Y')}"
+            
+            if date_info:
+                elements.append(Paragraph(date_info, styles['Normal']))
+                elements.append(Spacer(1, 0.08*inch))
 
         sections = [
             "CONDUCT:",

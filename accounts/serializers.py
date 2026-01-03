@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from schools.models import School, AcademicYear, Term, Subject, GradingScale
@@ -22,6 +23,48 @@ class UserSerializer(serializers.ModelSerializer):
             'school'          # include if your User model links to School
         ]
         read_only_fields = ['id']
+
+
+class UserRegistrationSerializer(serializers.ModelSerializer):
+    """Serializer for user registration"""
+    password = serializers.CharField(write_only=True, min_length=8)
+    password_confirm = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = User
+        fields = ['email', 'first_name', 'last_name', 'password', 'password_confirm']
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs['password_confirm']:
+            raise serializers.ValidationError({"password": "Passwords do not match"})
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop('password_confirm')
+        password = validated_data.pop('password')
+        user = User.objects.create_user(password=password, **validated_data)
+        return user
+
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Custom token serializer that includes user data"""
+    
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        data['user'] = UserSerializer(self.user).data
+        return data
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """Serializer for changing password"""
+    old_password = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True, min_length=8)
+    new_password_confirm = serializers.CharField(required=True)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password_confirm']:
+            raise serializers.ValidationError({"new_password": "Passwords do not match"})
+        return attrs
 
 
 class SchoolRegistrationSerializer(serializers.Serializer):
@@ -110,7 +153,7 @@ class SchoolRegistrationSerializer(serializers.Serializer):
             first_name=validated_data.get('first_name', 'Admin'),
             last_name=validated_data.get('last_name', 'User'),
             role='SCHOOL_ADMIN',
-            school=school
+            school=school 
         )
 
         return user

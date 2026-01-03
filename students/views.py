@@ -2,10 +2,12 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
-from .models import Student, Attendance, Behaviour, StudentPromotion
+from django.utils.dateparse import parse_date
+from .models import Student, Attendance, Behaviour, StudentPromotion, DailyAttendance
 from .serializers import (
     StudentSerializer, StudentCreateSerializer, AttendanceSerializer,
-    BehaviourSerializer, StudentPromotionSerializer, BulkStudentUploadSerializer
+    BehaviourSerializer, StudentPromotionSerializer, BulkStudentUploadSerializer,
+    DailyAttendanceSerializer, BulkAttendanceSerializer
 )
 
 
@@ -100,8 +102,13 @@ class StudentViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         user = self.request.user
         if getattr(user, 'role', None) == 'TEACHER':
-            # Prevent teachers from deleting students entirely
-            raise permissions.PermissionDenied("Teachers cannot delete student records")
+            # Only class teachers can toggle student status, not subject teachers
+            if not instance.current_class or instance.current_class.class_teacher != user:
+                raise permissions.PermissionDenied("Only class teachers can manage students in their class")
+            # Toggle student active status instead of deleting
+            instance.is_active = not instance.is_active
+            instance.save()
+            return
         instance.delete()
     
     @action(detail=False, methods=['post'])
@@ -211,6 +218,99 @@ class StudentViewSet(viewsets.ModelViewSet):
         })
 
 
+class DailyAttendanceViewSet(viewsets.ModelViewSet):
+    """Daily Attendance management"""
+    queryset = DailyAttendance.objects.all()
+    serializer_class = DailyAttendanceSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if not hasattr(user, 'school') or not user.school:
+            return DailyAttendance.objects.none()
+            
+        queryset = DailyAttendance.objects.filter(student__school=user.school)
+        
+        # Filter by class
+        class_id = self.request.query_params.get('class_id')
+        if class_id:
+            queryset = queryset.filter(class_instance_id=class_id)
+        
+        # Filter by date
+        date = self.request.query_params.get('date')
+        if date:
+            queryset = queryset.filter(date=date)
+        
+        # Filter by student
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+        
+        return queryset
+    
+    @action(detail=False, methods=['post'])
+    def bulk(self, request):
+        """Bulk create/update daily attendance records"""
+        serializer = BulkAttendanceSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        records = serializer.validated_data['records']
+        created_count = 0
+        updated_count = 0
+        errors = []
+        
+        with transaction.atomic():
+            for record_data in records:
+                try:
+                    # Validate required fields
+                    student_id = record_data.get('student')
+                    class_id = record_data.get('class_instance')
+                    date = record_data.get('date')
+                    status_value = record_data.get('status', 'absent')
+                    
+                    if not all([student_id, class_id, date]):
+                        errors.append(f"Missing required fields for record: {record_data}")
+                        continue
+                    
+                    # Validate student belongs to user's school
+                    try:
+                        student = Student.objects.get(
+                            id=student_id, 
+                            school=request.user.school
+                        )
+                    except Student.DoesNotExist:
+                        errors.append(f"Student {student_id} not found in your school")
+                        continue
+                    
+                    # Create or update attendance record
+                    attendance, created = DailyAttendance.objects.update_or_create(
+                        student_id=student_id,
+                        date=date,
+                        defaults={
+                            'class_instance_id': class_id,
+                            'status': status_value,
+                            'marked_by': request.user
+                        }
+                    )
+                    
+                    if created:
+                        created_count += 1
+                    else:
+                        updated_count += 1
+                        
+                except Exception as e:
+                    errors.append(f"Error processing record {record_data}: {str(e)}")
+        
+        return Response({
+            "message": f"Successfully processed attendance records",
+            "created": created_count,
+            "updated": updated_count,
+            "errors": errors
+        }, status=status.HTTP_200_OK)
+
+
 class AttendanceViewSet(viewsets.ModelViewSet):
     """Attendance management"""
     queryset = Attendance.objects.all()
@@ -219,19 +319,20 @@ class AttendanceViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
-        if user.school:
-            queryset = Attendance.objects.filter(student__school=user.school)
+        if not hasattr(user, 'school') or not user.school:
+            return Attendance.objects.none()
             
-            term_id = self.request.query_params.get('term_id')
-            if term_id:
-                queryset = queryset.filter(term_id=term_id)
-            
-            student_id = self.request.query_params.get('student_id')
-            if student_id:
-                queryset = queryset.filter(student_id=student_id)
-            
-            return queryset
-        return Attendance.objects.none()
+        queryset = Attendance.objects.filter(student__school=user.school)
+        
+        term_id = self.request.query_params.get('term_id')
+        if term_id:
+            queryset = queryset.filter(term_id=term_id)
+        
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+        
+        return queryset
 
 
 class BehaviourViewSet(viewsets.ModelViewSet):
@@ -242,19 +343,20 @@ class BehaviourViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
-        if user.school:
-            queryset = Behaviour.objects.filter(student__school=user.school)
+        if not hasattr(user, 'school') or not user.school:
+            return Behaviour.objects.none()
             
-            term_id = self.request.query_params.get('term_id')
-            if term_id:
-                queryset = queryset.filter(term_id=term_id)
-            
-            student_id = self.request.query_params.get('student_id')
-            if student_id:
-                queryset = queryset.filter(student_id=student_id)
-            
-            return queryset
-        return Behaviour.objects.none()
+        queryset = Behaviour.objects.filter(student__school=user.school)
+        
+        term_id = self.request.query_params.get('term_id')
+        if term_id:
+            queryset = queryset.filter(term_id=term_id)
+        
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+        
+        return queryset
 
 
 class StudentPromotionViewSet(viewsets.ReadOnlyModelViewSet):
@@ -265,6 +367,6 @@ class StudentPromotionViewSet(viewsets.ReadOnlyModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
-        if user.school:
-            return StudentPromotion.objects.filter(student__school=user.school)
-        return StudentPromotion.objects.none()
+        if not hasattr(user, 'school') or not user.school:
+            return StudentPromotion.objects.none()
+        return StudentPromotion.objects.filter(student__school=user.school)

@@ -136,4 +136,8 @@ class TeacherCreateSerializer(serializers.ModelSerializer):
         #     logger.error(f"Error sending welcome email to {user.email}: {str(e)}")
         # ---------------------------------------------------------
 
+        # Store the plain password for display purposes
+        teacher._plain_password = password
+        teacher._assigned_class = assigned_class
+        
         return teacher
