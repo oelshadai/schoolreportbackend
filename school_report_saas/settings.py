@@ -152,15 +152,17 @@ CORS_ALLOWED_ORIGINS = [h.strip() for h in config(
     'CORS_ALLOWED_ORIGINS',
     default='https://elitetechreport.netlify.app,http://localhost:5173,http://localhost:3000'
 ).split(',')]
-CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
+CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)  # Allow all origins in production
 CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_HEADERS = [
     'accept', 'accept-encoding', 'authorization', 'content-type',
     'dnt', 'origin', 'user-agent', 'x-csrftoken',
-    'x-requested-with', 'cache-control',
+    'x-requested-with', 'cache-control', 'x-forwarded-for',
+    'x-forwarded-proto', 'x-real-ip'
 ]
 CORS_EXPOSE_HEADERS = ['content-type', 'authorization', 'x-total-count']
+CORS_PREFLIGHT_MAX_AGE = 86400
 
 X_FRAME_OPTIONS = 'SAMEORIGIN'
 
