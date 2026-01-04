@@ -290,10 +290,15 @@
         <!-- Header with School Information -->
         <div class="header">
             <div class="school-logo">
-                <!-- School logo placeholder -->
-                <div style="width: 100%; height: 100%; border: 1px solid #000; display: flex; align-items: center; justify-content: center; background: #f0f0f0;">
-                    LOGO
-                </div>
+                {% if school.logo %}
+                    <img src="{{ school.logo.url }}" alt="{{ school.name }} Logo" 
+                         style="width: 100%; height: 100%; object-fit: contain;"
+                         onerror="this.parentElement.innerHTML='<div style=&quot;width: 100%; height: 100%; border: 1px solid #000; display: flex; align-items: center; justify-content: center; background: #f0f0f0; font-size: 8px;&quot;>LOGO</div>'">
+                {% else %}
+                    <div style="width: 100%; height: 100%; border: 1px solid #000; display: flex; align-items: center; justify-content: center; background: #f0f0f0; font-size: 8px;">
+                        LOGO
+                    </div>
+                {% endif %}
             </div>
             
             <div class="school-info">
@@ -310,10 +315,15 @@
             </div>
             
             <div class="school-logo">
-                <!-- Second logo placeholder -->
-                <div style="width: 100%; height: 100%; border: 1px solid #000; display: flex; align-items: center; justify-content: center; background: #f0f0f0;">
-                    LOGO
-                </div>
+                {% if school.logo %}
+                    <img src="{{ school.logo.url }}" alt="{{ school.name }} Logo" 
+                         style="width: 100%; height: 100%; object-fit: contain;"
+                         onerror="this.parentElement.innerHTML='<div style=&quot;width: 100%; height: 100%; border: 1px solid #000; display: flex; align-items: center; justify-content: center; background: #f0f0f0; font-size: 8px;&quot;>LOGO</div>'">
+                {% else %}
+                    <div style="width: 100%; height: 100%; border: 1px solid #000; display: flex; align-items: center; justify-content: center; background: #f0f0f0; font-size: 8px;">
+                        LOGO
+                    </div>
+                {% endif %}
             </div>
         </div>
         

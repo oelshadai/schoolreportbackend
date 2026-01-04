@@ -1,5 +1,6 @@
 from io import BytesIO
 from datetime import datetime
+import requests
 
 
 class ReportGenerator:
@@ -95,15 +96,42 @@ class ReportGenerator:
             try:
                 if not path:
                     return None
-                reader = ImageReader(path)
+                # Handle both file paths and URLs
+                if hasattr(path, 'url'):
+                    # Django FileField with URL
+                    import requests
+                    from django.conf import settings
+                    url = path.url
+                    if url.startswith('/'):
+                        # Relative URL, make it absolute
+                        base_url = getattr(settings, 'MEDIA_URL_BASE', 'http://localhost:8000')
+                        url = base_url + url
+                    response = requests.get(url, timeout=10)
+                    if response.status_code == 200:
+                        reader = ImageReader(BytesIO(response.content))
+                    else:
+                        return None
+                elif isinstance(path, str) and (path.startswith('http') or path.startswith('https')):
+                    # Direct URL
+                    import requests
+                    response = requests.get(path, timeout=10)
+                    if response.status_code == 200:
+                        reader = ImageReader(BytesIO(response.content))
+                    else:
+                        return None
+                else:
+                    # File path
+                    reader = ImageReader(path)
+                
                 iw, ih = reader.getSize()
                 scale = min(max_w/iw, max_h/ih)
-                return Image(path, width=iw*scale, height=ih*scale)
-            except Exception:
+                return Image(reader, width=iw*scale, height=ih*scale)
+            except Exception as e:
+                print(f"Error loading image {path}: {e}")
                 return None
 
-        school_logo = _get_image(getattr(getattr(self.school, 'logo', None), 'path', None), 0.8*inch, 0.8*inch)
-        student_photo = _get_image(getattr(getattr(self.student, 'photo', None), 'path', None), 1.2*inch, 1.5*inch)
+        school_logo = _get_image(getattr(self.school, 'logo', None), 0.8*inch, 0.8*inch)
+        student_photo = _get_image(getattr(self.student, 'photo', None), 1.2*inch, 1.5*inch)
 
         # School Header Section (Logo | School Info | Student Photo)
         header_data = []
