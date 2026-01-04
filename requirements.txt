@@ -11,6 +11,10 @@ PyJWT==2.8.0
 psycopg2-binary==2.9.9
 dj-database-url==2.1.0
 
+# Supabase
+supabase==2.0.2
+postgrest==0.12.0
+
 # Production server
 gunicorn==21.2.0
 

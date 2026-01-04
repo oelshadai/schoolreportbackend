@@ -77,7 +77,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'school_report_saas.wsgi.application'
 
 # Database
-# Force SQLite when DEBUG=True, regardless of other settings
+# Force SQLite when DEBUG=True, use Supabase in production
 print(f"DEBUG setting: {DEBUG}")
 print(f"DATABASE_URL setting: {config('DATABASE_URL', default=None)}")
 
@@ -95,17 +95,27 @@ elif config('DATABASE_URL', default=None):
         'default': dj_database_url.parse(config('DATABASE_URL'))
     }
 else:
-    print("Using default PostgreSQL")
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': config('DB_NAME', default='school_report_db'),
-            'USER': config('DB_USER', default='postgres'),
-            'PASSWORD': config('DB_PASSWORD', default=''),
-            'HOST': config('DB_HOST', default='localhost'),
-            'PORT': config('DB_PORT', default='5432'),
+    # Use Supabase configuration
+    from supabase_config import get_supabase_database_config
+    supabase_db_config = get_supabase_database_config()
+    
+    if supabase_db_config:
+        print("Using Supabase PostgreSQL database")
+        DATABASES = {
+            'default': supabase_db_config
         }
-    }
+    else:
+        print("Using default PostgreSQL")
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': config('DB_NAME', default='school_report_db'),
+                'USER': config('DB_USER', default='postgres'),
+                'PASSWORD': config('DB_PASSWORD', default=''),
+                'HOST': config('DB_HOST', default='localhost'),
+                'PORT': config('DB_PORT', default='5432'),
+            }
+        }
 
 # Custom User
 AUTH_USER_MODEL = 'accounts.User'
