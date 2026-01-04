@@ -1,6 +1,7 @@
 from io import BytesIO
 from datetime import datetime
 import requests
+from .utils import get_absolute_media_url
 
 
 class ReportGenerator:
@@ -98,26 +99,23 @@ class ReportGenerator:
                     return None
                 # Handle both file paths and URLs
                 if hasattr(path, 'url'):
-                    # Django FileField with URL
-                    import requests
-                    from django.conf import settings
-                    url = path.url
-                    if url.startswith('/'):
-                        # Relative URL, make it absolute
-                        base_url = getattr(settings, 'MEDIA_URL_BASE', 'http://localhost:8000')
-                        url = base_url + url
+                    # Django FileField with URL - use utility function
+                    url = get_absolute_media_url(path)
+                    if not url:
+                        return None
                     response = requests.get(url, timeout=10)
                     if response.status_code == 200:
                         reader = ImageReader(BytesIO(response.content))
                     else:
+                        print(f"Failed to fetch image from {url}: HTTP {response.status_code}")
                         return None
                 elif isinstance(path, str) and (path.startswith('http') or path.startswith('https')):
                     # Direct URL
-                    import requests
                     response = requests.get(path, timeout=10)
                     if response.status_code == 200:
                         reader = ImageReader(BytesIO(response.content))
                     else:
+                        print(f"Failed to fetch image from {path}: HTTP {response.status_code}")
                         return None
                 else:
                     # File path

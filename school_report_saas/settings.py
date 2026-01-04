@@ -142,7 +142,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'  # Commented out for local dev
 
 # Media URL base for PDF generation (deployment)
-MEDIA_URL_BASE = config('MEDIA_URL_BASE', default='http://localhost:8000')
+MEDIA_URL_BASE = config('MEDIA_URL_BASE', default='https://school-report-saas.onrender.com')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
