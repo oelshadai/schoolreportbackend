@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sites',
 
     # Third party
     'rest_framework',
@@ -119,6 +120,9 @@ else:
 
 # Custom User
 AUTH_USER_MODEL = 'accounts.User'
+
+# Sites framework
+SITE_ID = 1
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
