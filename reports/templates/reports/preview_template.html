@@ -322,7 +322,7 @@
         <div class="report-main-header">
             <div class="school-logo">
                 {% if school.logo %}
-                    <img src="{{ school.logo.url }}" alt="School Logo">
+                    <img src="https://school-report-saas.onrender.com{{ school.logo.url }}" alt="School Logo">
                 {% else %}LOGO{% endif %}
             </div>
             <div class="header-center">
@@ -337,7 +337,7 @@
             </div>
             <div class="school-logo">
                 {% if school.logo %}
-                    <img src="{{ school.logo.url }}" alt="School Logo">
+                    <img src="https://school-report-saas.onrender.com{{ school.logo.url }}" alt="School Logo">
                 {% else %}LOGO{% endif %}
             </div>
         </div>
@@ -377,7 +377,7 @@
 
         <div class="watermark-wrapper">
             {% if school.logo %}
-            <div class="watermark" style="background-image: url('{{ school.logo.url }}');"></div>
+            <div class="watermark" style="background-image: url('https://school-report-saas.onrender.com{{ school.logo.url }}');"></div>
             {% else %}
             <div class="watermark default"></div>
             {% endif %}

@@ -34,5 +34,6 @@ def get_absolute_media_url(file_field, request=None):
     if url.startswith('http'):
         return url
     
-    base_url = get_media_base_url(request)
+    # Always use production URL for deployed environment
+    base_url = 'https://school-report-saas.onrender.com'
     return base_url + url
