@@ -447,7 +447,9 @@
         <div class="header">
             <div class="school-logo">
                 {% if school.logo %}
-                    <img src="{{ school.logo.url }}" alt="{{ school.name }} Logo" 
+                    {% load static %}
+                    <img src="{% if request.is_secure %}https://{% else %}http://{% endif %}{{ request.get_host }}{{ school.logo.url }}" 
+                         alt="{{ school.name }} Logo" 
                          style="width: 100%; height: 100%; object-fit: contain;"
                          onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                     <div style="width: 100%; height: 100%; border: 1px solid #000; display: none; align-items: center; justify-content: center; background: #f0f0f0; font-size: 8px; font-weight: bold;">LOGO</div>
@@ -473,7 +475,8 @@
             
             <div class="school-logo">
                 {% if school.logo %}
-                    <img src="{{ school.logo.url }}" alt="{{ school.name }} Logo" 
+                    <img src="{% if request.is_secure %}https://{% else %}http://{% endif %}{{ request.get_host }}{{ school.logo.url }}" 
+                         alt="{{ school.name }} Logo" 
                          style="width: 100%; height: 100%; object-fit: contain;"
                          onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                     <div style="width: 100%; height: 100%; border: 1px solid #000; display: none; align-items: center; justify-content: center; background: #f0f0f0; font-size: 8px; font-weight: bold;">LOGO</div>
