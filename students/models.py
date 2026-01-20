@@ -164,7 +164,7 @@ class DailyAttendance(models.Model):
 class Behaviour(models.Model):
     """Student Behaviour/Conduct Model"""
     
-    RATING_CHOICES = [
+    CONDUCT_CHOICES = [
         ('EXCELLENT', 'Excellent'),
         ('VERY_GOOD', 'Very Good'),
         ('GOOD', 'Good'),
@@ -172,17 +172,40 @@ class Behaviour(models.Model):
         ('NEEDS_IMPROVEMENT', 'Needs Improvement'),
     ]
     
+    ATTITUDE_CHOICES = [
+        ('EXCELLENT', 'Excellent'),
+        ('VERY_GOOD', 'Very Good'),
+        ('GOOD', 'Good'),
+        ('SATISFACTORY', 'Satisfactory'),
+        ('NEEDS_IMPROVEMENT', 'Needs Improvement'),
+    ]
+    
+    INTEREST_CHOICES = [
+        ('READING_WRITING', 'Reading, Writing'),
+        ('MATHEMATICS_SCIENCE', 'Mathematics, Science'),
+        ('SPORTS_GAMES', 'Sports, Games'),
+        ('ARTS_CRAFTS', 'Arts, Crafts'),
+        ('MUSIC_DANCING', 'Music, Dancing'),
+        ('TECHNOLOGY_COMPUTERS', 'Technology, Computers'),
+        ('SOCIAL_ACTIVITIES', 'Social Activities'),
+        ('LEADERSHIP_ACTIVITIES', 'Leadership Activities'),
+        ('VARIED_INTERESTS', 'Varied Interests'),
+    ]
+    
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='behaviour_records')
     term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name='behaviour_records')
     
     # Conduct Ratings
-    conduct = models.CharField(max_length=20, choices=RATING_CHOICES, default='GOOD')
-    attitude = models.CharField(max_length=20, choices=RATING_CHOICES, default='GOOD')
-    interest = models.CharField(max_length=20, choices=RATING_CHOICES, default='GOOD')
-    punctuality = models.CharField(max_length=20, choices=RATING_CHOICES, default='GOOD')
+    conduct = models.CharField(max_length=20, choices=CONDUCT_CHOICES, default='GOOD')
+    attitude = models.CharField(max_length=20, choices=ATTITUDE_CHOICES, default='GOOD')
+    interest = models.CharField(max_length=100, blank=True, help_text="Student's interests and hobbies")
+    punctuality = models.CharField(max_length=20, choices=CONDUCT_CHOICES, default='GOOD')
     
-    # Additional Notes
-    remarks = models.TextField(blank=True)
+    # Teacher Remarks
+    class_teacher_remarks = models.TextField(blank=True, help_text="Class teacher's remarks about the student")
+    
+    # Promotion information
+    promoted_to = models.CharField(max_length=100, blank=True, help_text="Next class/level student is promoted to")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -194,6 +217,22 @@ class Behaviour(models.Model):
     
     def __str__(self):
         return f"{self.student.get_full_name()} - {self.term}"
+    
+    @classmethod
+    def get_teacher_remarks_templates(cls):
+        """Get predefined teacher remarks templates"""
+        return [
+            "Student has shown remarkable improvement this term. Demonstrates excellent understanding in core subjects. Participation in class discussions is commendable.",
+            "A well-behaved student with good academic performance. Shows consistent effort in all subjects. Keep up the excellent work.",
+            "Student displays positive attitude towards learning. Shows good cooperation with peers and teachers. Continue to strive for excellence.",
+            "Excellent student with outstanding academic performance. Shows leadership qualities and helps fellow students. Highly recommended.",
+            "Student shows good progress in most subjects. Needs to improve concentration during lessons. With more effort, can achieve better results.",
+            "Hardworking student with good moral character. Shows improvement in academic performance. Encouraged to maintain the good work.",
+            "Student demonstrates good understanding of subjects taught. Active participation in class activities. Shows potential for greater achievement.",
+            "Well-disciplined student with good academic standing. Shows respect for teachers and peers. Continue with the positive attitude.",
+            "Student shows satisfactory progress in academic work. Needs to be more attentive during lessons. Has potential to do better.",
+            "Promising student with good academic foundation. Shows interest in learning. Encouraged to participate more in class discussions."
+        ]
 
 
 class StudentPromotion(models.Model):

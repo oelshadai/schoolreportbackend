@@ -4,7 +4,7 @@ from .models import School, AcademicYear, Term, Class, Subject, ClassSubject, Gr
 
 @admin.register(School)
 class SchoolAdmin(admin.ModelAdmin):
-	list_display = ("name", "location", "phone_number", "email", "score_entry_mode", "is_active")
+	list_display = ("name", "location", "phone_number", "email", "score_entry_mode", "show_student_photos", "show_promotion_on_terminal", "is_active")
 	search_fields = ("name", "email", "location")
 	list_filter = ("is_active", "score_entry_mode", "report_template")
 	
@@ -25,10 +25,22 @@ class SchoolAdmin(admin.ModelAdmin):
 				'show_position_in_class', 
 				'show_attendance',
 				'show_behavior_comments',
+				'show_student_photos',
 				'principal_signature',
+				'show_headteacher_signature',
 				'class_teacher_signature_required'
 			),
 			'description': 'Customize how report cards look and what information they include',
+			'classes': ('collapse',)
+		}),
+		('Terminal Report Settings', {
+			'fields': (
+				'current_academic_year',
+				'term_closing_date',
+				'term_reopening_date',
+				'show_promotion_on_terminal'
+			),
+			'description': 'Configure terminal report specific settings',
 			'classes': ('collapse',)
 		}),
 		('Grade Scale', {

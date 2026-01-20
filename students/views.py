@@ -1,5 +1,5 @@
 from rest_framework import viewsets, status, permissions
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from django.db import transaction
 from django.utils.dateparse import parse_date
@@ -224,6 +224,24 @@ class DailyAttendanceViewSet(viewsets.ModelViewSet):
     serializer_class = DailyAttendanceSerializer
     permission_classes = [permissions.IsAuthenticated]
     
+    def list(self, request, *args, **kwargs):
+        """List attendance records with proper error handling"""
+        try:
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
+            
+            # Always return a successful response, even if no records found
+            return Response({
+                'results': serializer.data,
+                'count': len(serializer.data)
+            })
+        except Exception as e:
+            return Response({
+                'error': str(e),
+                'results': [],
+                'count': 0
+            }, status=status.HTTP_200_OK)
+    
     def get_queryset(self):
         user = self.request.user
         if not hasattr(user, 'school') or not user.school:
@@ -246,7 +264,7 @@ class DailyAttendanceViewSet(viewsets.ModelViewSet):
         if student_id:
             queryset = queryset.filter(student_id=student_id)
         
-        return queryset
+        return queryset.select_related('student', 'class_instance')
     
     @action(detail=False, methods=['post'])
     def bulk(self, request):
@@ -299,6 +317,9 @@ class DailyAttendanceViewSet(viewsets.ModelViewSet):
                         created_count += 1
                     else:
                         updated_count += 1
+                    
+                    # Send notification to student
+                    self._send_attendance_notification(student, status_value, date)
                         
                 except Exception as e:
                     errors.append(f"Error processing record {record_data}: {str(e)}")
@@ -309,6 +330,128 @@ class DailyAttendanceViewSet(viewsets.ModelViewSet):
             "updated": updated_count,
             "errors": errors
         }, status=status.HTTP_200_OK)
+    
+    def _send_attendance_notification(self, student, status, date):
+        """Send attendance notification to student"""
+        try:
+            from notifications.models import Notification
+            
+            if student.user:
+                status_text = "Present" if status == 'present' else "Absent" if status == 'absent' else "Late"
+                status_emoji = "✅" if status == 'present' else "❌" if status == 'absent' else "⏰"
+                notification_type = 'success' if status == 'present' else 'warning' if status == 'absent' else 'info'
+                
+                # Create notification
+                Notification.objects.create(
+                    user=student.user,
+                    title=f"{status_emoji} Attendance Update",
+                    message=f"Your attendance for {date} has been marked as {status_text}. Check your dashboard for details.",
+                    type=notification_type
+                )
+                
+                # Also update term attendance summary
+                self._update_term_attendance(student, status, date)
+                
+                print(f"Attendance notification sent to {student.get_full_name()} for {date}: {status_text}")
+                
+        except Exception as e:
+            # Don't fail attendance saving if notification fails
+            print(f"Failed to send notification to student {student.id}: {e}")
+    
+    def _update_term_attendance(self, student, status, date):
+        """Update term-based attendance summary"""
+        try:
+            from schools.models import Term
+            from datetime import datetime
+            
+            # Find current term for the date
+            date_obj = datetime.strptime(str(date), '%Y-%m-%d').date()
+            current_term = Term.objects.filter(
+                school=student.school,
+                start_date__lte=date_obj,
+                end_date__gte=date_obj
+            ).first()
+            
+            if current_term:
+                attendance_record, created = Attendance.objects.get_or_create(
+                    student=student,
+                    term=current_term,
+                    defaults={'days_present': 0, 'days_absent': 0, 'times_late': 0}
+                )
+                
+                if status == 'present':
+                    attendance_record.days_present += 1
+                elif status == 'absent':
+                    attendance_record.days_absent += 1
+                elif status == 'late':
+                    attendance_record.times_late += 1
+                    attendance_record.days_present += 1  # Late is still present
+                
+                attendance_record.save()
+                
+        except Exception as e:
+            print(f"Failed to update term attendance for student {student.id}: {e}")
+    
+    @action(detail=False, methods=['get'])
+    def report(self, request):
+        """Generate attendance reports"""
+        user = request.user
+        if not hasattr(user, 'school') or not user.school:
+            return Response({'error': 'No school associated'}, status=status.HTTP_403_FORBIDDEN)
+            
+        class_id = request.query_params.get('class_id')
+        report_type = request.query_params.get('report_type', 'daily')
+        date = request.query_params.get('date')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        
+        if not class_id:
+            return Response({'error': 'class_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            from django.db.models import Count, Q
+            
+            queryset = DailyAttendance.objects.filter(
+                student__school=user.school,
+                class_instance_id=class_id
+            )
+            
+            if report_type == 'daily' and date:
+                queryset = queryset.filter(date=date)
+            elif report_type == 'weekly' and start_date and end_date:
+                queryset = queryset.filter(date__range=[start_date, end_date])
+            elif report_type == 'monthly' and start_date and end_date:
+                queryset = queryset.filter(date__range=[start_date, end_date])
+            
+            # Calculate statistics
+            total_records = queryset.count()
+            present_count = queryset.filter(status='present').count()
+            absent_count = queryset.filter(status='absent').count()
+            late_count = queryset.filter(status='late').count()
+            
+            attendance_rate = 0
+            if total_records > 0:
+                attendance_rate = round((present_count / total_records) * 100, 2)
+            
+            return Response({
+                'total_present': present_count,
+                'total_absent': absent_count,
+                'total_late': late_count,
+                'total_records': total_records,
+                'attendance_rate': attendance_rate,
+                'report_type': report_type,
+                'class_id': class_id,
+                'date_range': {
+                    'start': start_date or date,
+                    'end': end_date or date
+                }
+            })
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to generate report: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class AttendanceViewSet(viewsets.ModelViewSet):
@@ -324,15 +467,41 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             
         queryset = Attendance.objects.filter(student__school=user.school)
         
-        term_id = self.request.query_params.get('term_id')
+        # Handle both term_id and term parameters
+        term_id = self.request.query_params.get('term_id') or self.request.query_params.get('term')
         if term_id:
             queryset = queryset.filter(term_id=term_id)
         
-        student_id = self.request.query_params.get('student_id')
+        # Handle both student_id and student parameters
+        student_id = self.request.query_params.get('student_id') or self.request.query_params.get('student')
         if student_id:
             queryset = queryset.filter(student_id=student_id)
         
         return queryset
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def create_behaviour_record(request):
+    """Simple function-based view to create behaviour records"""
+    user = request.user
+    
+    if not hasattr(user, 'school') or not user.school:
+        return Response({'error': 'User not attached to school'}, status=status.HTTP_403_FORBIDDEN)
+    
+    # Validate student belongs to user's school
+    student_id = request.data.get('student')
+    if student_id:
+        try:
+            student = Student.objects.get(id=student_id, school=user.school)
+        except Student.DoesNotExist:
+            return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    serializer = BehaviourSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class BehaviourViewSet(viewsets.ModelViewSet):
@@ -348,15 +517,48 @@ class BehaviourViewSet(viewsets.ModelViewSet):
             
         queryset = Behaviour.objects.filter(student__school=user.school)
         
-        term_id = self.request.query_params.get('term_id')
+        # Handle both term_id and term parameters
+        term_id = self.request.query_params.get('term_id') or self.request.query_params.get('term')
         if term_id:
             queryset = queryset.filter(term_id=term_id)
         
-        student_id = self.request.query_params.get('student_id')
+        # Handle both student_id and student parameters
+        student_id = self.request.query_params.get('student_id') or self.request.query_params.get('student')
         if student_id:
             queryset = queryset.filter(student_id=student_id)
         
         return queryset
+    
+    def create(self, request, *args, **kwargs):
+        """Override create method"""
+        user = request.user
+        
+        if not hasattr(user, 'school') or not user.school:
+            return Response({'error': 'User not attached to school'}, status=status.HTTP_403_FORBIDDEN)
+        
+        # Validate student belongs to user's school
+        student_id = request.data.get('student')
+        if student_id:
+            try:
+                student = Student.objects.get(id=student_id, school=user.school)
+            except Student.DoesNotExist:
+                return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'])
+    def choices(self, request):
+        """Get dropdown choices for behaviour fields"""
+        return Response({
+            'conduct_choices': Behaviour.CONDUCT_CHOICES,
+            'attitude_choices': Behaviour.ATTITUDE_CHOICES,
+            'interest_choices': Behaviour.INTEREST_CHOICES,
+            'teacher_remarks_templates': Behaviour.get_teacher_remarks_templates()
+        })
 
 
 class StudentPromotionViewSet(viewsets.ReadOnlyModelViewSet):

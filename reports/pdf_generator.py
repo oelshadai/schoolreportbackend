@@ -152,8 +152,11 @@ class ReportGenerator:
                 Paragraph(f"Email: {self.school.email}", contact_style)
             )
         
-        # Right: Student Photo placeholder or actual photo
-        right_cell = student_photo if student_photo else Paragraph("STUDENT<br/>PHOTO", contact_style)
+        # Right: Student Photo placeholder or actual photo (check school setting)
+        if getattr(self.school, 'show_student_photos', True):
+            right_cell = student_photo if student_photo else Paragraph("STUDENT<br/>PHOTO", contact_style)
+        else:
+            right_cell = ""  # Don't show student photo section
         
         header_data.append([left_cell, center_content, right_cell])
         
@@ -205,11 +208,17 @@ class ReportGenerator:
         else:
             year_name = getattr(academic_year, 'name', '2023/2024') if academic_year else '2023/2024'
         
+        # Build student info based on school settings
         student_info = [
             f"NAME:...{student_name}...CLASS: {class_name}",
-            f"ACADEMIC YEAR: {year_name}    TERM: {getattr(self.term, 'get_name_display', lambda: 'FIRST (1)')()}    CLASS NO:.....",
-            f"CLASS TEACHER:...{getattr(getattr(class_obj, 'class_teacher', None), 'get_full_name', lambda: '')()}...POSITION:....."
+            f"ACADEMIC YEAR: {year_name}    TERM: {getattr(self.term, 'get_name_display', lambda: 'FIRST (1)')()}    CLASS NO:....."
         ]
+        
+        # Add class teacher info and position based on settings
+        class_teacher_line = f"CLASS TEACHER:...{getattr(getattr(class_obj, 'class_teacher', None), 'get_full_name', lambda: '')()}"
+        if getattr(self.school, 'show_position_in_class', True):
+            class_teacher_line += "...POSITION:....."
+        student_info.append(class_teacher_line)
         
         for info in student_info:
             elements.append(Paragraph(info, styles['Normal']))
@@ -295,20 +304,30 @@ class ReportGenerator:
         elements.append(Spacer(1, 0.08*inch))
 
         # Attendance and Additional Sections
-        # Check if promotion should be shown and get term dates
-        show_promotion = getattr(self.school, 'show_promotion_on_terminal', True)
+        # Check if attendance should be shown
+        if getattr(self.school, 'show_attendance', True):
+            # Check if promotion should be shown and get term dates
+            show_promotion = getattr(self.school, 'show_promotion_on_terminal', True)
+            closing_date = getattr(self.school, 'term_closing_date', None)
+            reopening_date = getattr(self.school, 'term_reopening_date', None)
+            
+            if show_promotion:
+                attendance_info = f"ATTENDANCE:...{getattr(attendance, 'days_present', '')}...OUT OF:...{getattr(attendance, 'total_days', '')}...PROMOTED TO:..."
+            else:
+                attendance_info = f"ATTENDANCE:...{getattr(attendance, 'days_present', '')}...OUT OF:...{getattr(attendance, 'total_days', '')}"
+            
+            elements.append(Paragraph(attendance_info, styles['Normal']))
+            elements.append(Spacer(1, 0.08*inch))
+        else:
+            # Even if attendance is hidden, still show promotion if enabled
+            show_promotion = getattr(self.school, 'show_promotion_on_terminal', True)
+            if show_promotion:
+                elements.append(Paragraph("PROMOTED TO:...", styles['Normal']))
+                elements.append(Spacer(1, 0.08*inch))
+        
+        # Add term dates if available (independent of attendance setting)
         closing_date = getattr(self.school, 'term_closing_date', None)
         reopening_date = getattr(self.school, 'term_reopening_date', None)
-        
-        if show_promotion:
-            attendance_info = f"ATTENDANCE:...{getattr(attendance, 'days_present', '')}...OUT OF:...{getattr(attendance, 'total_days', '')}...PROMOTED TO:..."
-        else:
-            attendance_info = f"ATTENDANCE:...{getattr(attendance, 'days_present', '')}...OUT OF:...{getattr(attendance, 'total_days', '')}"
-        
-        elements.append(Paragraph(attendance_info, styles['Normal']))
-        elements.append(Spacer(1, 0.08*inch))
-        
-        # Add term dates if available
         if closing_date or reopening_date:
             date_info = ""
             if closing_date:
@@ -322,28 +341,88 @@ class ReportGenerator:
                 elements.append(Paragraph(date_info, styles['Normal']))
                 elements.append(Spacer(1, 0.08*inch))
 
-        sections = [
-            "CONDUCT:",
-            "ATTITUDE:",
-            "INTEREST:",
-            "CLASS TEACHER'S REMARKS:",
-            "HEAD TEACHER'S REMARKS:"
-        ]
+        # Behavior sections based on school settings
+        if getattr(self.school, 'show_behavior_comments', True):
+            sections = [
+                "CONDUCT:",
+                "ATTITUDE:",
+                "INTEREST:"
+            ]
+            
+            for section in sections:
+                elements.append(Paragraph(section, styles['Normal']))
+                elements.append(Paragraph("." * 80, styles['Normal']))
+                elements.append(Spacer(1, 0.04*inch))
 
-        for section in sections:
-            elements.append(Paragraph(section, styles['Normal']))
+        # Teacher remarks sections
+        # Always show class teacher remarks section
+        elements.append(Paragraph("CLASS TEACHER'S REMARKS:", styles['Normal']))
+        
+        # Add actual teacher remarks if available
+        teacher_remarks = getattr(behaviour, 'class_teacher_remarks', '') if behaviour else ''
+        if teacher_remarks:
+            remarks_style = ParagraphStyle(
+                'TeacherRemarks',
+                parent=styles['Normal'],
+                fontSize=9,
+                leftIndent=0.2*inch,
+                spaceAfter=6
+            )
+            elements.append(Paragraph(teacher_remarks, remarks_style))
+        else:
             elements.append(Paragraph("." * 80, styles['Normal']))
-            elements.append(Spacer(1, 0.04*inch))
+        elements.append(Spacer(1, 0.08*inch))
+        
+        # Head teacher remarks if enabled
+        if getattr(self.school, 'show_headteacher_signature', True):
+            elements.append(Paragraph("HEAD TEACHER'S REMARKS:", styles['Normal']))
+            elements.append(Paragraph("." * 80, styles['Normal']))
+            elements.append(Spacer(1, 0.08*inch))
 
-        # Signature Section
+        # Signature Section - based on school settings
         elements.append(Spacer(1, 0.22*inch))
+        
+        signature_labels = []
+        signature_lines = []
+        
+        # Always include parent/guardian
+        signature_labels.append('PARENT/GUARDIAN')
+        signature_lines.append('...................................')
+        
+        # Add class teacher signature if required
+        if getattr(self.school, 'class_teacher_signature_required', False):
+            signature_labels.insert(0, 'CLASS TEACHER')
+            signature_lines.insert(0, '...................................')
+        
+        # Add head teacher signature if enabled
+        if getattr(self.school, 'show_headteacher_signature', True):
+            if len(signature_labels) == 1:  # Only parent so far
+                signature_labels.insert(0, 'HEAD TEACHER')
+                signature_lines.insert(0, '...................................')
+            else:  # Both class teacher and parent
+                signature_labels.insert(1, 'HEAD TEACHER')
+                signature_lines.insert(1, '...................................')
+        
+        # Build signature table based on number of signatures
+        if len(signature_labels) == 1:
+            col_widths = [7*inch]
+        elif len(signature_labels) == 2:
+            col_widths = [3.5*inch, 3.5*inch]
+        else:  # 3 signatures
+            col_widths = [2.3*inch, 2.3*inch, 2.3*inch]
+        
+        # Pad with empty strings if needed
+        while len(signature_labels) < 3:
+            signature_labels.append('')
+            signature_lines.append('')
+        
         signature_data = [
             ['', '', ''],
-            ['...................................', '...................................', '...................................'],
-            ['CLASS TEACHER', 'HEAD TEACHER', 'PARENT/GUARDIAN'],
+            signature_lines,
+            signature_labels,
         ]
 
-        signature_table = Table(signature_data, colWidths=[2.3*inch, 2.3*inch, 2.3*inch])
+        signature_table = Table(signature_data, colWidths=col_widths)
         signature_table.setStyle(TableStyle([
             ('FONTNAME', (0, 2), (-1, 2), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, -1), 10),

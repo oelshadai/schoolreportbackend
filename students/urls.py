@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import StudentViewSet, AttendanceViewSet, BehaviourViewSet, StudentPromotionViewSet, DailyAttendanceViewSet
+from .views import StudentViewSet, AttendanceViewSet, BehaviourViewSet, StudentPromotionViewSet, DailyAttendanceViewSet, create_behaviour_record
 from .auth_views import student_login, student_dashboard, student_logout
 from accounts.password_views import change_password
 
@@ -16,4 +16,5 @@ urlpatterns = [
     path('auth/logout/', student_logout, name='student_logout'),
     path('auth/dashboard/', student_dashboard, name='student_dashboard'),
     path('auth/change-password/', change_password, name='student_change_password'),
+    path('behaviour/create/', create_behaviour_record, name='create_behaviour'),
 ] + router.urls

@@ -15,7 +15,7 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-development-key-chang
 DEBUG = config('DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = [h.strip() for h in config(
     'ALLOWED_HOSTS',
-    default='localhost,127.0.0.1,*.onrender.com'
+    default='localhost,127.0.0.1,*.onrender.com,testserver'
 ).split(',')]
 
 # Applications

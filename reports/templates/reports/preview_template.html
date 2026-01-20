@@ -359,7 +359,7 @@
                 </div>
                 <div class="student-info-row">
                     <span class="info-left">CLASS TEACHER: Mr. John Doe</span>
-                    <span class="info-right">POSITION: 5th</span>
+                    {% if school.show_position_in_class %}<span class="info-right">POSITION: 5th</span>{% endif %}
                 </div>
                 {% if school.term_closing_date or school.term_reopening_date %}
                 <div class="student-info-row">
@@ -462,43 +462,59 @@
         </div>
 
         <div class="attendance-conduct">
-            {% if school.show_promotion_on_terminal %}
-            <div class="student-info-row">
-                <span class="info-label">ATTENDANCE: 85 OUT OF: 90</span>
-                <span class="info-right">PROMOTED TO: BASIC 8</span>
-            </div>
+            {% if school.show_attendance %}
+                {% if school.show_promotion_on_terminal %}
+                <div class="student-info-row">
+                    <span class="info-label">ATTENDANCE: 85 OUT OF: 90</span>
+                    <span class="info-right">PROMOTED TO: BASIC 8</span>
+                </div>
+                {% else %}
+                <div class="student-info-row">
+                    <span class="info-label">ATTENDANCE: 85 OUT OF: 90</span>
+                </div>
+                {% endif %}
             {% else %}
-            <div class="student-info-row">
-                <span class="info-label">ATTENDANCE: 85 OUT OF: 90</span>
-            </div>
+                {% if school.show_promotion_on_terminal %}
+                <div class="student-info-row">
+                    <span class="info-right">PROMOTED TO: BASIC 8</span>
+                </div>
+                {% endif %}
             {% endif %}
             
+            {% if school.show_behavior_comments %}
             <div class="conduct-row">
                 <span class="conduct-left">CONDUCT: Excellent</span>
                 <span class="conduct-center">ATTITUDE: Very Good</span>
                 <span class="conduct-right">INTEREST: Reading, Dancing</span>
             </div>
             <div class="dotted-line"></div>
+            {% endif %}
             
             <div class="remarks-section">
                 <div class="remarks-header">CLASS TEACHER'S REMARKS:</div>
                 <div style="margin: 8px 0; font-size: 11px; line-height: 1.6;">Sample Student has shown remarkable improvement this term. She demonstrates excellent understanding in Mathematics and Science subjects. Her participation in class discussions is commendable and she helps her peers when needed.</div>
             </div>
             
+            {% if school.show_headteacher_signature %}
             <div class="remarks-section">
                 <div class="remarks-header">HEAD TEACHER'S REMARKS:</div>
                 <div style="margin: 8px 0; font-size: 11px; line-height: 1.6;">A well-behaved student with good academic performance. Keep up the excellent work and continue to strive for excellence in all subjects.</div>
             </div>
+            {% endif %}
             
             <div class="signature-section">
+                {% if school.class_teacher_signature_required %}
                 <div class="signature-box">
                     <div class="signature-line"></div>
                     <div class="signature-label">Class Teacher</div>
                 </div>
+                {% endif %}
+                {% if school.show_headteacher_signature %}
                 <div class="signature-box">
                     <div class="signature-line"></div>
                     <div class="signature-label">Head Teacher</div>
                 </div>
+                {% endif %}
                 <div class="signature-box">
                     <div class="signature-line"></div>
                     <div class="signature-label">Parent/Guardian</div>

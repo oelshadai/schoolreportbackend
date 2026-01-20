@@ -68,11 +68,16 @@ class AttendanceSerializer(serializers.ModelSerializer):
 class BehaviourSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.get_full_name', read_only=True)
     term_name = serializers.CharField(source='term.__str__', read_only=True)
+    teacher_remarks_templates = serializers.SerializerMethodField()
     
     class Meta:
         model = Behaviour
         fields = '__all__'
         read_only_fields = ['created_at', 'updated_at']
+    
+    def get_teacher_remarks_templates(self, obj):
+        """Return predefined teacher remarks templates"""
+        return Behaviour.get_teacher_remarks_templates()
 
 
 class StudentPromotionSerializer(serializers.ModelSerializer):

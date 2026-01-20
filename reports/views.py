@@ -1012,26 +1012,30 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
+            print(f"Preview data request for school: {school.name}")
+            
             # Create sample data for preview
             sample_data = self._create_sample_report_data(school)
+            
+            print(f"Sample data created successfully")
             
             # Convert namedtuples to dictionaries for JSON serialization
             response_data = {
                 'school': {
-                    'name': school.name,
-                    'address': school.address,
-                    'phone_number': school.phone_number,
-                    'motto': school.motto,
-                    'current_academic_year': getattr(school, 'current_academic_year', ''),
-                    'report_template': school.report_template,
+                    'name': getattr(school, 'name', 'Sample School'),
+                    'address': getattr(school, 'address', 'Sample Address'),
+                    'phone_number': getattr(school, 'phone_number', '0123456789'),
+                    'motto': getattr(school, 'motto', 'Excellence in Education'),
+                    'current_academic_year': getattr(school, 'current_academic_year', '2024/2025'),
+                    'report_template': getattr(school, 'report_template', 'standard'),
                     'show_position_in_class': getattr(school, 'show_position_in_class', True),
                     'show_student_photos': getattr(school, 'show_student_photos', True),
                     'class_teacher_signature_required': getattr(school, 'class_teacher_signature_required', False),
                     'show_headteacher_signature': getattr(school, 'show_headteacher_signature', True),
-                    'grade_scale_a_min': school.grade_scale_a_min,
-                    'grade_scale_b_min': school.grade_scale_b_min,
-                    'grade_scale_c_min': school.grade_scale_c_min,
-                    'grade_scale_d_min': school.grade_scale_d_min,
+                    'grade_scale_a_min': getattr(school, 'grade_scale_a_min', 80),
+                    'grade_scale_b_min': getattr(school, 'grade_scale_b_min', 70),
+                    'grade_scale_c_min': getattr(school, 'grade_scale_c_min', 60),
+                    'grade_scale_d_min': getattr(school, 'grade_scale_d_min', 50),
                     'grade_scale_f_min': getattr(school, 'grade_scale_f_min', 0),
                 },
                 'student': {
@@ -1042,7 +1046,7 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 },
                 'term': {
                     'name': sample_data['term'].name,
-                    'academic_year': sample_data['term'].academic_year,
+                    'academic_year': sample_data['term'].academic_year.name,
                 },
                 'subject_results': [
                     {
@@ -1073,9 +1077,13 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 }
             }
             
+            print(f"Response data prepared successfully")
             return Response(response_data)
             
         except Exception as e:
+            print(f"Preview data error: {str(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
             return Response(
                 {"error": f"Failed to generate preview data: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -1083,140 +1091,185 @@ class ReportCardViewSet(viewsets.ModelViewSet):
     
     def _create_sample_report_data(self, school):
         """Create sample data for template preview"""
-        from collections import namedtuple
-        from schools.models import Subject, ClassSubject
-        import random
-        
-        # Sample student data
-        class SampleStudent:
-            def __init__(self, school):
-                self.student_id = "STU001"
-                self.first_name = "Sample"
-                self.last_name = "Student" 
-                self.date_of_birth = "2010-01-15"
-                self.photo = None
-                self.school = school
-                # Add comprehensive current_class mock
-                class MockClass:
-                    def __init__(self):
-                        self.name = "JSS 1A"
-                        self.id = 1
-                        self.level = "JHS"
-                        self.class_teacher = None
-                        
-                    class Students:
-                        def count(self):
-                            return 25
-                    
-                    students = Students()
-                self.current_class = MockClass()
-                self.current_class_id = 1
-            
-            def get_full_name(self):
-                return f"{self.first_name} {self.last_name}"
-        
-        sample_student = SampleStudent(school)
-        
-        # Sample term data with proper academic year
-        class SampleTerm:
-            def __init__(self):
-                self.name = "First Term"
-                self.id = 1
-                self.start_date = None
-                self.end_date = None
-                
-                class MockAcademicYear:
-                    def __init__(self):
-                        self.name = "2024/2025"
-                        self.id = 1
-                
-                self.academic_year = MockAcademicYear()
-        
-        sample_term = SampleTerm()
-        
-        # Get actual subjects from the school or use defaults
-        subjects = ['English Language', 'Mathematics', 'Integrated Science', 'Social Studies', 'Religious & Moral Edu.']
-        
-        # Try to get subjects from school's class subjects if available
         try:
-            from schools.models import ClassSubject
-            class_subjects = ClassSubject.objects.filter(
-                class_instance__school=school
-            ).select_related('subject')[:8]
+            from collections import namedtuple
+            from schools.models import Subject, ClassSubject
+            import random
             
-            if class_subjects.exists():
-                subjects = [cs.subject.name for cs in class_subjects]
-        except Exception:
-            pass  # Use default subjects
-        
-        # Sample subject results using actual subjects
-        SampleSubjectResult = namedtuple('SampleSubjectResult', ['subject_name', 'class_score', 'exam_score', 'total_score', 'grade', 'position'])
-        
-        sample_results = []
-        for i, subject in enumerate(subjects):
-            # Keep scores within 0-50 each to reflect 50/50 weighting
-            class_score = random.randint(20, 30)  # class component (already out of 50 for preview)
-            exam_score = random.randint(25, 50)   # exam component (out of 50)
-            total = class_score + exam_score
+            print(f"Creating sample data for school: {school.name}")
             
-            if total >= school.grade_scale_a_min:
-                grade = 'A'
-            elif total >= school.grade_scale_b_min:
-                grade = 'B'
-            elif total >= school.grade_scale_c_min:
-                grade = 'C'
-            elif total >= school.grade_scale_d_min:
-                grade = 'D'
+            # Sample student data
+            class SampleStudent:
+                def __init__(self, school):
+                    self.student_id = "STU001"
+                    self.first_name = "Sample"
+                    self.last_name = "Student" 
+                    self.date_of_birth = "2010-01-15"
+                    # Only set photo if school allows student photos
+                    self.photo = None if not getattr(school, 'show_student_photos', True) else None
+                    self.school = school
+                    # Add comprehensive current_class mock
+                    class MockClass:
+                        def __init__(self):
+                            self.name = "JSS 1A"
+                            self.id = 1
+                            self.level = "JHS"
+                            # Only set class teacher if school requires signature
+                            if getattr(school, 'class_teacher_signature_required', False):
+                                class MockTeacher:
+                                    def get_full_name(self):
+                                        return "Mr. John Doe"
+                                self.class_teacher = MockTeacher()
+                            else:
+                                self.class_teacher = None
+                            
+                        class Students:
+                            def count(self):
+                                return 25
+                        
+                        students = Students()
+                    self.current_class = MockClass()
+                    self.current_class_id = 1
+                
+                def get_full_name(self):
+                    return f"{self.first_name} {self.last_name}"
+            
+            sample_student = SampleStudent(school)
+            print(f"Sample student created: {sample_student.get_full_name()}")
+            
+            # Sample term data with proper academic year
+            class SampleTerm:
+                def __init__(self):
+                    self.name = "First Term"
+                    self.id = 1
+                    self.start_date = None
+                    self.end_date = None
+                    
+                    class MockAcademicYear:
+                        def __init__(self):
+                            self.name = "2024/2025"
+                            self.id = 1
+                    
+                    self.academic_year = MockAcademicYear()
+            
+            sample_term = SampleTerm()
+            print(f"Sample term created: {sample_term.name}")
+            
+            # Get actual subjects from the school or use defaults
+            subjects = ['English Language', 'Mathematics', 'Integrated Science', 'Social Studies', 'Religious & Moral Edu.']
+            
+            # Try to get subjects from school's class subjects if available
+            try:
+                from schools.models import ClassSubject
+                class_subjects = ClassSubject.objects.filter(
+                    class_instance__school=school
+                ).select_related('subject')[:8]
+                
+                if class_subjects.exists():
+                    subjects = [cs.subject.name for cs in class_subjects]
+                    print(f"Using school subjects: {subjects}")
+                else:
+                    print(f"Using default subjects: {subjects}")
+            except Exception as e:
+                print(f"Error getting school subjects, using defaults: {e}")
+                pass  # Use default subjects
+            
+            # Sample subject results using actual subjects
+            SampleSubjectResult = namedtuple('SampleSubjectResult', ['subject_name', 'class_score', 'exam_score', 'total_score', 'grade', 'position'])
+            
+            sample_results = []
+            for i, subject in enumerate(subjects):
+                # Keep scores within 0-50 each to reflect 50/50 weighting
+                class_score = random.randint(20, 30)  # class component (already out of 50 for preview)
+                exam_score = random.randint(25, 50)   # exam component (out of 50)
+                total = class_score + exam_score
+                
+                # Use safe attribute access for grade scales
+                grade_scale_a_min = getattr(school, 'grade_scale_a_min', 80)
+                grade_scale_b_min = getattr(school, 'grade_scale_b_min', 70)
+                grade_scale_c_min = getattr(school, 'grade_scale_c_min', 60)
+                grade_scale_d_min = getattr(school, 'grade_scale_d_min', 50)
+                
+                if total >= grade_scale_a_min:
+                    grade = 'A'
+                elif total >= grade_scale_b_min:
+                    grade = 'B'
+                elif total >= grade_scale_c_min:
+                    grade = 'C'
+                elif total >= grade_scale_d_min:
+                    grade = 'D'
+                else:
+                    grade = 'F'
+                
+                sample_results.append(SampleSubjectResult(
+                    subject_name=subject,
+                    class_score=class_score,
+                    exam_score=exam_score,
+                    total_score=total,
+                    grade=grade,
+                    position=i + 1
+                ))
+            
+            print(f"Created {len(sample_results)} sample subject results")
+            
+            # Sample term result
+            SampleTermResult = namedtuple('SampleTermResult', ['total_score', 'average', 'position', 'grade', 'status'])
+            total_scores = sum(result.total_score for result in sample_results)
+            average = total_scores / len(sample_results) if sample_results else 0
+            
+            # Use safe attribute access for grade scales
+            grade_scale_b_min = getattr(school, 'grade_scale_b_min', 70)
+            grade_scale_d_min = getattr(school, 'grade_scale_d_min', 50)
+            
+            sample_term_result = SampleTermResult(
+                total_score=total_scores,
+                average=round(average, 2),
+                position=5,
+                grade='B' if average >= grade_scale_b_min else 'C',
+                status='PROMOTED' if average >= grade_scale_d_min else 'REPEAT'
+            )
+            
+            print(f"Sample term result created with average: {sample_term_result.average}")
+            
+            # Sample attendance - only create if school shows attendance
+            SampleAttendance = namedtuple('SampleAttendance', ['days_present', 'days_absent', 'total_days'])
+            if getattr(school, 'show_attendance', True):
+                sample_attendance = SampleAttendance(
+                    days_present=85,
+                    days_absent=5,
+                    total_days=90
+                )
             else:
-                grade = 'F'
+                sample_attendance = None
             
-            sample_results.append(SampleSubjectResult(
-                subject_name=subject,
-                class_score=class_score,
-                exam_score=exam_score,
-                total_score=total,
-                grade=grade,
-                position=i + 1
-            ))
-        
-        # Sample term result
-        SampleTermResult = namedtuple('SampleTermResult', ['total_score', 'average', 'position', 'grade', 'status'])
-        total_scores = sum(result.total_score for result in sample_results)
-        average = total_scores / len(sample_results) if sample_results else 0
-        
-        sample_term_result = SampleTermResult(
-            total_score=total_scores,
-            average=round(average, 2),
-            position=5,
-            grade='B' if average >= school.grade_scale_b_min else 'C',
-            status='PROMOTED' if average >= school.grade_scale_d_min else 'REPEAT'
-        )
-        
-        # Sample attendance
-        SampleAttendance = namedtuple('SampleAttendance', ['days_present', 'days_absent', 'total_days'])
-        sample_attendance = SampleAttendance(
-            days_present=85,
-            days_absent=5,
-            total_days=90
-        )
-        
-        # Sample behaviour with all required fields
-        SampleBehaviour = namedtuple('SampleBehaviour', ['conduct', 'attitude', 'interest', 'class_teacher_remarks'])
-        sample_behaviour = SampleBehaviour(
-            conduct='Good',
-            attitude='Excellent', 
-            interest='Very Good',
-            class_teacher_remarks='Student shows excellent potential and good behavior in class.'
-        )
-        
-        return {
-            'student': sample_student,
-            'term': sample_term,
-            'subject_results': sample_results,
-            'term_result': sample_term_result,
-            'attendance': sample_attendance,
-            'behaviour': sample_behaviour
-        }
+            # Sample behaviour - only create if school shows behavior comments
+            SampleBehaviour = namedtuple('SampleBehaviour', ['conduct', 'attitude', 'interest', 'class_teacher_remarks'])
+            if getattr(school, 'show_behavior_comments', True):
+                sample_behaviour = SampleBehaviour(
+                    conduct='Good',
+                    attitude='Excellent', 
+                    interest='Very Good',
+                    class_teacher_remarks='Student shows excellent potential and good behavior in class.'
+                )
+            else:
+                sample_behaviour = None
+            
+            print(f"Sample data creation completed successfully")
+            
+            return {
+                'student': sample_student,
+                'term': sample_term,
+                'subject_results': sample_results,
+                'term_result': sample_term_result,
+                'attendance': sample_attendance,
+                'behaviour': sample_behaviour
+            }
+            
+        except Exception as e:
+            print(f"Error in _create_sample_report_data: {str(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            raise e
 
 
 from django.views.decorators.clickjacking import xframe_options_exempt

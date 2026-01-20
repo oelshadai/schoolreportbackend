@@ -8,6 +8,8 @@ from django.utils.decorators import method_decorator
 from .models import Teacher
 from .serializers import TeacherSerializer, TeacherCreateSerializer
 from schools.models import Class, ClassSubject
+from students.models import Student, DailyAttendance
+from datetime import date
 
 User = get_user_model()
 
@@ -331,3 +333,122 @@ class TeacherViewSet(viewsets.ModelViewSet):
                 {"error": "Class subject assignment not found"}, 
                 status=status.HTTP_404_NOT_FOUND
             )
+    
+    @action(detail=False, methods=['get', 'post'])
+    def attendance(self, request):
+        """Take or view class attendance"""
+        if not request.user.is_authenticated:
+            return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+        
+        if request.method == 'GET':
+            return self._get_attendance(request)
+        elif request.method == 'POST':
+            return self._take_attendance(request)
+    
+    def _get_attendance(self, request):
+        """Get attendance records for teacher's classes"""
+        class_id = request.query_params.get('class_id')
+        attendance_date = request.query_params.get('date', str(date.today()))
+        
+        if not class_id:
+            return Response({'error': 'class_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Verify teacher has access to this class
+            class_obj = Class.objects.get(id=class_id, school=request.user.school)
+            if class_obj.class_teacher != request.user:
+                return Response({'error': 'Access denied to this class'}, status=status.HTTP_403_FORBIDDEN)
+            
+            # Get students in the class
+            students = Student.objects.filter(current_class=class_obj, is_active=True)
+            
+            # Get existing attendance records for the date
+            attendance_records = DailyAttendance.objects.filter(
+                class_instance=class_obj,
+                date=attendance_date
+            ).select_related('student')
+            
+            attendance_dict = {record.student_id: record.status for record in attendance_records}
+            
+            student_list = []
+            for student in students:
+                student_list.append({
+                    'id': student.id,
+                    'student_id': student.student_id,
+                    'name': student.get_full_name(),
+                    'status': attendance_dict.get(student.id, 'absent')
+                })
+            
+            return Response({
+                'class_id': class_id,
+                'class_name': str(class_obj),
+                'date': attendance_date,
+                'students': student_list,
+                'total_students': len(student_list)
+            })
+            
+        except Class.DoesNotExist:
+            return Response({'error': 'Class not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _take_attendance(self, request):
+        """Record attendance for students"""
+        class_id = request.data.get('class_id')
+        attendance_date = request.data.get('date', str(date.today()))
+        attendance_records = request.data.get('attendance', [])
+        
+        if not class_id or not attendance_records:
+            return Response({'error': 'class_id and attendance records are required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Verify teacher has access to this class
+            class_obj = Class.objects.get(id=class_id, school=request.user.school)
+            if class_obj.class_teacher != request.user:
+                return Response({'error': 'Access denied to this class'}, status=status.HTTP_403_FORBIDDEN)
+            
+            updated_count = 0
+            created_count = 0
+            
+            with transaction.atomic():
+                for record in attendance_records:
+                    student_id = record.get('student_id')
+                    status_value = record.get('status', 'absent')
+                    
+                    if not student_id:
+                        continue
+                    
+                    # Verify student belongs to this class
+                    try:
+                        student = Student.objects.get(id=student_id, current_class=class_obj, is_active=True)
+                    except Student.DoesNotExist:
+                        continue
+                    
+                    # Create or update attendance record
+                    attendance, created = DailyAttendance.objects.update_or_create(
+                        student=student,
+                        class_instance=class_obj,
+                        date=attendance_date,
+                        defaults={
+                            'status': status_value,
+                            'marked_by': request.user
+                        }
+                    )
+                    
+                    if created:
+                        created_count += 1
+                    else:
+                        updated_count += 1
+            
+            return Response({
+                'message': 'Attendance recorded successfully',
+                'created': created_count,
+                'updated': updated_count,
+                'date': attendance_date,
+                'class_name': str(class_obj)
+            })
+            
+        except Class.DoesNotExist:
+            return Response({'error': 'Class not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
