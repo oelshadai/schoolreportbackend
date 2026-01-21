@@ -188,6 +188,13 @@ CORS_ALLOW_HEADERS = [
 CORS_EXPOSE_HEADERS = ['content-type', 'authorization', 'x-total-count']
 CORS_PREFLIGHT_MAX_AGE = 86400
 
+# CSRF trusted origins for production
+CSRF_TRUSTED_ORIGINS = [
+    'https://school-report-saas-1.onrender.com',
+    'https://school-report-saas.onrender.com',
+    'https://elitetechreport.netlify.app'
+]
+
 X_FRAME_OPTIONS = 'SAMEORIGIN'
 
 # Cloudinary
