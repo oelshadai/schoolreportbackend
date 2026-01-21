@@ -1,7 +1,7 @@
 from io import BytesIO
 from datetime import datetime
-import requests
 from .utils import get_absolute_media_url
+from .image_loader import ReportImageLoader
 
 
 class ReportGenerator:
@@ -92,44 +92,28 @@ class ReportGenerator:
             fontName='Helvetica-Bold'
         )
 
-        # Helper function to get images
-        def _get_image(path, max_w, max_h):
-            try:
-                if not path:
-                    return None
-                # Handle both file paths and URLs
-                if hasattr(path, 'url'):
-                    # Django FileField with URL - use utility function
-                    url = get_absolute_media_url(path)
-                    if not url:
-                        return None
-                    response = requests.get(url, timeout=10)
-                    if response.status_code == 200:
-                        reader = ImageReader(BytesIO(response.content))
-                    else:
-                        print(f"Failed to fetch image from {url}: HTTP {response.status_code}")
-                        return None
-                elif isinstance(path, str) and (path.startswith('http') or path.startswith('https')):
-                    # Direct URL
-                    response = requests.get(path, timeout=10)
-                    if response.status_code == 200:
-                        reader = ImageReader(BytesIO(response.content))
-                    else:
-                        print(f"Failed to fetch image from {path}: HTTP {response.status_code}")
-                        return None
-                else:
-                    # File path
-                    reader = ImageReader(path)
-                
-                iw, ih = reader.getSize()
-                scale = min(max_w/iw, max_h/ih)
-                return Image(reader, width=iw*scale, height=ih*scale)
-            except Exception as e:
-                print(f"Error loading image {path}: {e}")
-                return None
+        # Helper function to get images with optimized loading
+        def _get_image(file_field, max_w_inches, max_h_inches):
+            """Get image with proper error handling and sizing"""
+            reader, width, height = ReportImageLoader.get_image_reader(
+                file_field, max_w_inches, max_h_inches
+            )
+            
+            if reader:
+                return Image(reader, width=width*inch, height=height*inch)
+            
+            # Return placeholder if image fails to load
+            placeholder_reader, p_width, p_height = ReportImageLoader.create_placeholder_image(
+                max_w_inches, max_h_inches, "LOGO" if "logo" in str(file_field) else "PHOTO"
+            )
+            if placeholder_reader:
+                return Image(placeholder_reader, width=p_width*inch, height=p_height*inch)
+            
+            return None
 
-        school_logo = _get_image(getattr(self.school, 'logo', None), 0.8*inch, 0.8*inch)
-        student_photo = _get_image(getattr(self.student, 'photo', None), 1.2*inch, 1.5*inch)
+        # Load images with optimized handling
+        school_logo = _get_image(getattr(self.school, 'logo', None), 0.8, 0.8)
+        student_photo = _get_image(getattr(self.student, 'photo', None), 1.2, 1.5)
 
         # School Header Section (Logo | School Info | Student Photo)
         header_data = []

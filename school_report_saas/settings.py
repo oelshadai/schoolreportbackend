@@ -174,9 +174,9 @@ SIMPLE_JWT = {
 # CORS
 CORS_ALLOWED_ORIGINS = [h.strip() for h in config(
     'CORS_ALLOWED_ORIGINS',
-    default='https://elitetechreport.netlify.app,http://localhost:5173,http://localhost:3000'
+    default='https://school-report-saas-1.onrender.com,https://elitetechreport.netlify.app,http://localhost:5173,http://localhost:3000'
 ).split(',')]
-CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)  # Allow all origins in production
+CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
 CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_HEADERS = [
@@ -210,7 +210,7 @@ EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER or 'noreply@schoolreport.com')
 
-FRONTEND_URL = config('FRONTEND_URL', default='https://elitetechreport.netlify.app')
+FRONTEND_URL = config('FRONTEND_URL', default='https://school-report-saas-1.onrender.com')
 
 # Payment
 PAYSTACK_SECRET_KEY = config('PAYSTACK_SECRET_KEY', default='')

@@ -30,10 +30,29 @@ def get_absolute_media_url(file_field, request=None):
     if not file_field:
         return None
     
-    url = file_field.url
-    if url.startswith('http'):
-        return url
-    
-    # Always use production URL for deployed environment
-    base_url = 'https://school-report-saas.onrender.com'
-    return base_url + url
+    try:
+        url = file_field.url
+        if url.startswith('http'):
+            return url
+        
+        # Always use production URL for deployed environment
+        base_url = get_media_base_url(request)
+        return base_url + url
+    except (ValueError, AttributeError):
+        # Handle cases where file_field.url might fail
+        return None
+
+
+def validate_image_url(url):
+    """
+    Validate if an image URL is accessible
+    """
+    if not url:
+        return False
+        
+    try:
+        import requests
+        response = requests.head(url, timeout=5)
+        return response.status_code == 200
+    except Exception:
+        return False
