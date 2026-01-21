@@ -174,7 +174,7 @@ SIMPLE_JWT = {
 # CORS
 CORS_ALLOWED_ORIGINS = [h.strip() for h in config(
     'CORS_ALLOWED_ORIGINS',
-    default='https://school-report-saas-1.onrender.com,https://elitetechreport.netlify.app,http://localhost:5173,http://localhost:3000'
+    default='https://school-report-saas-1.onrender.com,https://elitetechreport.netlify.app,http://localhost:5173,http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:5173'
 ).split(',')]
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
 CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
