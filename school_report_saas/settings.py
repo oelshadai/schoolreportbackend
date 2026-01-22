@@ -12,10 +12,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Security
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-development-key-change-in-production')
-DEBUG = config('DEBUG', default=True, cast=bool)
+DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = [h.strip() for h in config(
     'ALLOWED_HOSTS',
-    default='localhost,127.0.0.1,*.onrender.com,testserver'
+    default='localhost,127.0.0.1,*.onrender.com,school-report-saas.onrender.com,testserver'
 ).split(',')]
 
 # Applications
@@ -78,45 +78,21 @@ TEMPLATES = [
 WSGI_APPLICATION = 'school_report_saas.wsgi.application'
 
 # Database
-# Force SQLite when DEBUG=True, use Supabase in production
-print(f"DEBUG setting: {DEBUG}")
-print(f"DATABASE_URL setting: {config('DATABASE_URL', default=None)}")
-
 if DEBUG:
-    print("Using SQLite database")
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
         }
     }
-elif config('DATABASE_URL', default=None):
-    print("Using DATABASE_URL")
-    DATABASES = {
-        'default': dj_database_url.parse(config('DATABASE_URL'))
-    }
 else:
-    # Use Supabase configuration
-    from supabase_config import get_supabase_database_config
-    supabase_db_config = get_supabase_database_config()
-    
-    if supabase_db_config:
-        print("Using Supabase PostgreSQL database")
-        DATABASES = {
-            'default': supabase_db_config
-        }
-    else:
-        print("Using default PostgreSQL")
-        DATABASES = {
-            'default': {
-                'ENGINE': 'django.db.backends.postgresql',
-                'NAME': config('DB_NAME', default='school_report_db'),
-                'USER': config('DB_USER', default='postgres'),
-                'PASSWORD': config('DB_PASSWORD', default=''),
-                'HOST': config('DB_HOST', default='localhost'),
-                'PORT': config('DB_PORT', default='5432'),
-            }
-        }
+    DATABASES = {
+        "default": dj_database_url.parse(
+            os.environ.get("DATABASE_URL"),
+            conn_max_age=600,
+            ssl_require=True
+        )
+    }
 
 # Custom User
 AUTH_USER_MODEL = 'accounts.User'
@@ -247,12 +223,7 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 2621440  # 2.5MB
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000
 
-# Database connection pooling
-DATABASES['default']['CONN_MAX_AGE'] = 60
-DATABASES['default']['OPTIONS'] = {
-    'MAX_CONNS': 20,
-    'connect_timeout': 10,
-}
+
 
 # Logging configuration
 LOGGING = {
