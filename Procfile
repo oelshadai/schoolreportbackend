@@ -1,0 +1,1 @@
+web: gunicorn --config gunicorn.conf.py school_report_saas.wsgi

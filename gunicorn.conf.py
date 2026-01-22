@@ -1,42 +1,33 @@
-"""
-Gunicorn configuration to prevent worker timeouts and memory issues
-"""
+# Gunicorn configuration for memory optimization
 import multiprocessing
+import os
 
-# Server socket
-bind = "0.0.0.0:8000"
-backlog = 2048
-
-# Worker processes
-workers = multiprocessing.cpu_count() * 2 + 1
+# Worker processes - reduced for memory efficiency
+workers = min(2, multiprocessing.cpu_count())
 worker_class = "sync"
 worker_connections = 1000
-timeout = 120  # Increase timeout from default 30s
-keepalive = 30
-max_requests = 1000
-max_requests_jitter = 50
 
 # Memory management
+max_requests = 1000
+max_requests_jitter = 50
 preload_app = True
-reload = False
 
-# Security
-limit_request_line = 4094
-limit_request_fields = 100
-limit_request_field_size = 8190
+# Timeouts
+timeout = 30
+keepalive = 2
+
+# Binding
+bind = "0.0.0.0:10000"
 
 # Logging
+loglevel = "warning"
 accesslog = "-"
 errorlog = "-"
-loglevel = "info"
-access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
 
 # Process naming
 proc_name = "school_report_saas"
 
-# Server mechanics
-daemon = False
-pidfile = None
-tmp_upload_dir = None
-user = None
-group = None
+# Memory limits per worker
+limit_request_line = 4094
+limit_request_fields = 100
+limit_request_field_size = 8190
