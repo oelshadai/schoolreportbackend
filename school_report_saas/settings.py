@@ -48,7 +48,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',  # must be first
     'django.middleware.security.SecurityMiddleware',
-    # 'whitenoise.middleware.WhiteNoiseMiddleware',  # Commented out for local dev
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Enable for production
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -119,7 +119,7 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
-# STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'  # Commented out for local dev
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Media URL base for PDF generation (deployment)
 MEDIA_URL_BASE = config('MEDIA_URL_BASE', default='https://school-report-saas.onrender.com')
@@ -150,7 +150,7 @@ SIMPLE_JWT = {
 # CORS
 CORS_ALLOWED_ORIGINS = [h.strip() for h in config(
     'CORS_ALLOWED_ORIGINS',
-    default='https://school-report-saas-1.onrender.com,https://elitetechreport.netlify.app,http://localhost:5173,http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:5173'
+    default='https://school-report-saas.onrender.com,https://elitetechreport.netlify.app,http://localhost:5173,http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:5173'
 ).split(',')]
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
 CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
@@ -166,7 +166,6 @@ CORS_PREFLIGHT_MAX_AGE = 86400
 
 # CSRF trusted origins for production
 CSRF_TRUSTED_ORIGINS = [
-    'https://school-report-saas-1.onrender.com',
     'https://school-report-saas.onrender.com',
     'https://elitetechreport.netlify.app'
 ]
@@ -193,7 +192,7 @@ EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER or 'noreply@schoolreport.com')
 
-FRONTEND_URL = config('FRONTEND_URL', default='https://school-report-saas-1.onrender.com')
+FRONTEND_URL = config('FRONTEND_URL', default='https://elitetechreport.netlify.app')
 
 # Payment
 PAYSTACK_SECRET_KEY = config('PAYSTACK_SECRET_KEY', default='')
