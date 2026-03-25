@@ -36,6 +36,16 @@ class School(models.Model):
         help_text='Current academic year (e.g., 2024/2025)'
     )
     
+    # Current term
+    current_term = models.ForeignKey(
+        'Term',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='schools_using_as_current',
+        help_text='Currently active term for the school'
+    )
+    
     # Score entry configuration
     score_entry_mode = models.CharField(
         max_length=20, 
@@ -50,16 +60,6 @@ class School(models.Model):
         choices=REPORT_TEMPLATES,
         default='STANDARD',
         help_text='Report card template style'
-    )
-    
-    # Report customization
-    report_header_text = models.TextField(
-        blank=True,
-        help_text='Custom header text for report cards (e.g., school vision/mission)'
-    )
-    report_footer_text = models.TextField(
-        blank=True,
-        help_text='Custom footer text for report cards (e.g., next term info)'
     )
     show_class_average = models.BooleanField(
         default=True,

@@ -1,8 +1,8 @@
 from rest_framework import viewsets, status, permissions
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import transaction, models
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from .models import Teacher
@@ -10,7 +10,9 @@ from .serializers import TeacherSerializer, TeacherCreateSerializer
 from schools.models import Class, ClassSubject
 from students.models import Student, DailyAttendance
 from datetime import date
+import logging
 
+logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
@@ -29,6 +31,81 @@ class CORSPermission(permissions.BasePermission):
         # If not authenticated, still return True but let the view handle the logic
         # This prevents blocking at the permission level
         return True
+
+# Function-based view as alternative to action decorator
+@api_view(['GET'])
+@permission_classes([CORSPermission])
+def teacher_assignments_view(request):
+    """Get current user's teaching assignments (classes and subjects) with assignment counts"""
+    try:
+        user = request.user
+        results = []
+        
+        # Check if user is authenticated
+        if not user.is_authenticated:
+            return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+        
+        # Check if user has school
+        if not hasattr(user, 'school') or not user.school:
+            return Response([])
+        
+        # Get classes where user is class teacher
+        from schools.models import Class
+        class_assignments = Class.objects.filter(
+            school=user.school,
+            class_teacher=user
+        ).select_related('school')
+        
+        logger.info(f"Found {class_assignments.count()} class assignments for user {user.id}")
+        
+        for cls in class_assignments:
+            results.append({
+                'id': f'class_{cls.id}',
+                'type': 'form_class',
+                'class': {
+                    'id': cls.id,
+                    'name': str(cls),
+                    'level': cls.level,
+                    'section': cls.section or ''
+                },
+                'subject': None,
+                'assignment_count': 0
+            })
+        
+        # Get subject assignments
+        subject_assignments = ClassSubject.objects.filter(
+            teacher=user,
+            class_instance__school=user.school
+        ).select_related('class_instance', 'subject')
+        
+        logger.info(f"Found {subject_assignments.count()} subject assignments for user {user.id}")
+        
+        for assignment in subject_assignments:
+            results.append({
+                'id': assignment.id,
+                'type': 'subject_class',
+                'class': {
+                    'id': assignment.class_instance.id,
+                    'name': str(assignment.class_instance),
+                    'level': assignment.class_instance.level,
+                    'section': assignment.class_instance.section or ''
+                },
+                'subject': {
+                    'id': assignment.subject.id,
+                    'name': assignment.subject.name
+                },
+                'assignment_count': 0
+            })
+        
+        logger.info(f"Returning {len(results)} total assignments")
+        return Response(results)
+        
+    except Exception as e:
+        logger.error(f"ERROR in assignments endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -102,7 +179,139 @@ class TeacherViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def assignments(self, request):
-        """Get current user's teaching assignments (classes and subjects)"""
+        """Get current user's teaching assignments (classes and subjects) with assignment counts"""
+        try:
+            user = request.user
+            results = []
+            
+            # Check if user has school
+            if not user.school:
+                return Response([])
+            
+            # Get classes where user is class teacher - FIXED QUERY
+            from schools.models import Class
+            class_assignments = Class.objects.filter(
+                school=user.school,
+                class_teacher=user
+            ).select_related('school')
+            
+            logger.info(f"Found {class_assignments.count()} class assignments for user {user.id}")
+            
+            for cls in class_assignments:
+                results.append({
+                    'id': f'class_{cls.id}',
+                    'type': 'form_class',
+                    'class': {
+                        'id': cls.id,
+                        'name': str(cls),
+                        'level': cls.level,
+                        'section': cls.section or ''
+                    },
+                    'subject': None,
+                    'assignment_count': 0
+                })
+            
+            # Get subject assignments
+            subject_assignments = ClassSubject.objects.filter(
+                teacher=user,
+                class_instance__school=user.school
+            ).select_related('class_instance', 'subject')
+            
+            logger.info(f"Found {subject_assignments.count()} subject assignments for user {user.id}")
+            
+            for assignment in subject_assignments:
+                results.append({
+                    'id': assignment.id,
+                    'type': 'subject_class',
+                    'class': {
+                        'id': assignment.class_instance.id,
+                        'name': str(assignment.class_instance),
+                        'level': assignment.class_instance.level,
+                        'section': assignment.class_instance.section or ''
+                    },
+                    'subject': {
+                        'id': assignment.subject.id,
+                        'name': assignment.subject.name
+                    },
+                    'assignment_count': 0
+                })
+            
+            logger.info(f"Returning {len(results)} total assignments")
+            return Response(results)
+            
+        except Exception as e:
+            logger.error(f"ERROR in assignments endpoint: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    @action(detail=False, methods=['get', 'patch'])
+    def profile(self, request):
+        """Get or update current teacher's profile"""
+        if not request.user.is_authenticated:
+            return Response({
+                'error': 'Authentication required'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        try:
+            # Get teacher profile for current user
+            teacher = Teacher.objects.get(user=request.user)
+            
+            if request.method == 'GET':
+                serializer = TeacherSerializer(teacher)
+                return Response(serializer.data)
+            
+            elif request.method == 'PATCH':
+                # Update profile data
+                user_data = {}
+                teacher_data = {}
+                
+                # Extract user fields
+                if 'first_name' in request.data:
+                    user_data['first_name'] = request.data['first_name']
+                if 'last_name' in request.data:
+                    user_data['last_name'] = request.data['last_name']
+                if 'phone_number' in request.data:
+                    user_data['phone_number'] = request.data['phone_number']
+                
+                # Extract teacher fields
+                if 'emergency_contact' in request.data:
+                    teacher_data['emergency_contact'] = request.data['emergency_contact']
+                if 'address' in request.data:
+                    teacher_data['address'] = request.data['address']
+                if 'qualification' in request.data:
+                    teacher_data['qualification'] = request.data['qualification']
+                
+                # Update user data
+                if user_data:
+                    for key, value in user_data.items():
+                        setattr(teacher.user, key, value)
+                    teacher.user.save()
+                
+                # Update teacher data
+                if teacher_data:
+                    for key, value in teacher_data.items():
+                        setattr(teacher, key, value)
+                    teacher.save()
+                
+                # Return updated profile
+                serializer = TeacherSerializer(teacher)
+                return Response(serializer.data)
+                
+        except Teacher.DoesNotExist:
+            return Response({
+                'error': 'Teacher profile not found',
+                'detail': 'No teacher profile associated with this user'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                'error': 'Failed to process profile request',
+                'detail': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['get'])
+    def dashboard_stats(self, request):
+        """Get teacher dashboard statistics including assignment counts"""
         if not request.user.is_authenticated:
             return Response({
                 'error': 'Authentication required'
@@ -110,52 +319,74 @@ class TeacherViewSet(viewsets.ModelViewSet):
             
         user = request.user
         
-        # Get classes where user is class teacher
-        class_teacher_assignments = Class.objects.filter(
+        # Import required models
+        from assignments.models import Assignment, StudentAssignment
+        from students.models import DailyAttendance
+        from datetime import date, timedelta
+        
+        # Get teacher's classes (both as class teacher and subject teacher)
+        class_teacher_classes = Class.objects.filter(
             school=user.school,
             class_teacher=user
         )
         
-        # Get subject teaching assignments
-        subject_assignments = ClassSubject.objects.filter(
+        subject_classes = ClassSubject.objects.filter(
             teacher=user
-        ).select_related('class_instance', 'subject')
+        ).values_list('class_instance', flat=True).distinct()
         
-        # Build response with both types
-        results = []
+        all_class_ids = list(class_teacher_classes.values_list('id', flat=True)) + list(subject_classes)
+        all_class_ids = list(set(all_class_ids))  # Remove duplicates
         
-        # Add form class assignments
-        for cls in class_teacher_assignments:
-            results.append({
-                'id': f'class_{cls.id}',
-                'type': 'form_class',
-                'class': {
-                    'id': cls.id,
-                    'name': str(cls),
-                    'level': cls.level,
-                    'section': cls.section or ''
-                },
-                'subject': None
-            })
+        # Get assignment statistics
+        teacher_assignments = Assignment.objects.filter(
+            models.Q(created_by=user) |
+            models.Q(class_instance__in=all_class_ids)
+        ).distinct()
         
-        # Add subject assignments
-        for assignment in subject_assignments:
-            results.append({
-                'id': assignment.id,
-                'type': 'subject_class',
-                'class': {
-                    'id': assignment.class_instance.id,
-                    'name': str(assignment.class_instance),
-                    'level': assignment.class_instance.level,
-                    'section': assignment.class_instance.section or ''
-                },
-                'subject': {
-                    'id': assignment.subject.id,
-                    'name': assignment.subject.name
-                }
-            })
+        total_assignments = teacher_assignments.count()
+        published_assignments = teacher_assignments.filter(status='PUBLISHED').count()
+        draft_assignments = teacher_assignments.filter(status='DRAFT').count()
         
-        return Response({'results': results})
+        # Get submission statistics
+        total_submissions = StudentAssignment.objects.filter(
+            assignment__in=teacher_assignments,
+            status__in=['SUBMITTED', 'GRADED']
+        ).count()
+        
+        pending_grading = StudentAssignment.objects.filter(
+            assignment__in=teacher_assignments,
+            status='SUBMITTED'
+        ).count()
+        
+        # Get attendance statistics for today
+        today = date.today()
+        today_attendance = DailyAttendance.objects.filter(
+            class_instance__in=all_class_ids,
+            date=today
+        )
+        
+        present_today = today_attendance.filter(status='present').count()
+        absent_today = today_attendance.filter(status='absent').count()
+        
+        return Response({
+            'assignments': {
+                'total': total_assignments,
+                'published': published_assignments,
+                'draft': draft_assignments,
+                'submissions': total_submissions,
+                'pending_grading': pending_grading
+            },
+            'attendance': {
+                'present_today': present_today,
+                'absent_today': absent_today,
+                'total_today': present_today + absent_today
+            },
+            'classes': {
+                'total_classes': len(all_class_ids),
+                'as_class_teacher': class_teacher_classes.count(),
+                'as_subject_teacher': len(subject_classes)
+            }
+        })
     
     def get_queryset(self):
         user = self.request.user
@@ -288,6 +519,14 @@ class TeacherViewSet(viewsets.ModelViewSet):
         
         try:
             target_class = Class.objects.get(id=class_id, school=teacher.school)
+            
+            # Check if class already has a teacher assigned
+            if target_class.class_teacher and target_class.class_teacher != teacher.user:
+                return Response(
+                    {"error": f"Class {target_class} already has a class teacher assigned"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             target_class.class_teacher = teacher.user
             target_class.save()
             
@@ -296,7 +535,8 @@ class TeacherViewSet(viewsets.ModelViewSet):
             teacher.save()
             
             return Response({
-                "message": f"Teacher {teacher.get_full_name()} assigned as class teacher for {target_class}"
+                "message": f"Teacher {teacher.get_full_name()} assigned as class teacher for {target_class}",
+                "class_name": str(target_class)
             })
         except Class.DoesNotExist:
             return Response(

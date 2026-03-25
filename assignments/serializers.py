@@ -1,106 +1,52 @@
 from rest_framework import serializers
-from .models import Assignment, StudentAssignment, StudentPortalAccess, Question, QuestionOption, AssignmentAttempt
-from students.serializers import StudentSerializer
-from schools.serializers import ClassSerializer, ClassSubjectSerializer
-from schools.models import Term
+from .models import QuizAnswerFile, QuizAnswer, StudentAssignment, Assignment
 
 
-class QuestionOptionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = QuestionOption
-        fields = ['id', 'option_text', 'is_correct', 'order']
-
-
-class QuestionSerializer(serializers.ModelSerializer):
-    options = QuestionOptionSerializer(many=True, required=False)
+class QuizAnswerFileSerializer(serializers.ModelSerializer):
+    """Serializer for professional file uploads"""
     
     class Meta:
-        model = Question
-        fields = ['id', 'question_text', 'question_type', 'points', 'order', 'expected_answer', 'case_sensitive', 'options']
+        model = QuizAnswerFile
+        fields = ['id', 'original_filename', 'file_size', 'mime_type', 'uploaded_at', 'file']
+        read_only_fields = ['id', 'file_size', 'mime_type', 'uploaded_at']
+
+
+class QuizAnswerSerializer(serializers.ModelSerializer):
+    """Enhanced QuizAnswer serializer with file upload support"""
+    uploaded_files = QuizAnswerFileSerializer(many=True, read_only=True)
     
-    def create(self, validated_data):
-        options_data = validated_data.pop('options', [])
-        question = Question.objects.create(**validated_data)
-        
-        for option_data in options_data:
-            QuestionOption.objects.create(question=question, **option_data)
-        
-        return question
+    class Meta:
+        model = QuizAnswer
+        fields = ['id', 'attempt', 'question', 'selected_option', 'answer_text', 
+                 'answer_files', 'is_correct', 'points_earned', 'answered_at', 'uploaded_files']
+        read_only_fields = ['id', 'answered_at', 'uploaded_files']
 
 
 class AssignmentSerializer(serializers.ModelSerializer):
-    class_name = serializers.CharField(source='class_instance.full_name', read_only=True)
-    subject_name = serializers.CharField(source='class_subject.subject.name', read_only=True)
-    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
-    questions = QuestionSerializer(many=True, required=False)
+    """Basic assignment serializer"""
+    type = serializers.CharField(source='assignment_type', read_only=True)
     
     class Meta:
         model = Assignment
-        fields = '__all__'
-        read_only_fields = ['created_by']
-    
-    def create(self, validated_data):
-        questions_data = validated_data.pop('questions', [])
-        
-        # If no term is provided, use the current active term or first term
-        if 'term' not in validated_data or not validated_data['term']:
-            class_instance = validated_data.get('class_instance')
-            if class_instance and class_instance.school:
-                # Try to get current active term or first term
-                term = Term.objects.filter(
-                    school=class_instance.school,
-                    is_current=True
-                ).first()
-                if not term:
-                    term = Term.objects.filter(
-                        school=class_instance.school
-                    ).first()
-                if term:
-                    validated_data['term'] = term
-        
-        assignment = super().create(validated_data)
-        
-        # Create questions
-        for question_data in questions_data:
-            options_data = question_data.pop('options', [])
-            question = Question.objects.create(assignment=assignment, **question_data)
-            
-            for option_data in options_data:
-                QuestionOption.objects.create(question=question, **option_data)
-        
-        return assignment
-
-
-class AssignmentAttemptSerializer(serializers.ModelSerializer):
-    assignment_title = serializers.CharField(source='student_assignment.assignment.title', read_only=True)
-    student_name = serializers.CharField(source='student_assignment.student.get_full_name', read_only=True)
-    
-    class Meta:
-        model = AssignmentAttempt
-        fields = '__all__'
+        fields = ['id', 'title', 'description', 'assignment_type', 'type', 'due_date', 'max_score', 'status', 'time_limit']
 
 
 class StudentAssignmentSerializer(serializers.ModelSerializer):
-    assignment_title = serializers.CharField(source='assignment.title', read_only=True)
-    assignment_type = serializers.CharField(source='assignment.assignment_type', read_only=True)
+    """Student assignment serializer"""
+    assignment = AssignmentSerializer(read_only=True)
+    # Add flattened fields for easier frontend access
+    title = serializers.CharField(source='assignment.title', read_only=True)
+    type = serializers.CharField(source='assignment.assignment_type', read_only=True)
     due_date = serializers.DateTimeField(source='assignment.due_date', read_only=True)
-    max_score = serializers.IntegerField(source='assignment.max_score', read_only=True)
-    student_name = serializers.CharField(source='student.get_full_name', read_only=True)
-    assignment = AssignmentSerializer(read_only=True)  # Include full assignment data
-    attempts = AssignmentAttemptSerializer(many=True, read_only=True)
-    can_attempt = serializers.ReadOnlyField()
-    attempts_remaining = serializers.ReadOnlyField()
+    time_limit = serializers.IntegerField(source='assignment.time_limit', read_only=True)
+    points = serializers.IntegerField(source='assignment.max_score', read_only=True)
     
     class Meta:
         model = StudentAssignment
-        fields = '__all__'
-
-
-class StudentPortalAccessSerializer(serializers.ModelSerializer):
-    student_name = serializers.CharField(source='student.get_full_name', read_only=True)
-    student_id = serializers.CharField(source='student.student_id', read_only=True)
-    
-    class Meta:
-        model = StudentPortalAccess
-        fields = ['id', 'student', 'username', 'is_active', 'last_login', 'student_name', 'student_id']
-        read_only_fields = ['password_hash']
+        fields = [
+            'id', 'assignment', 'status', 'score', 'teacher_feedback', 
+            'submitted_at', 'graded_at', 'attempts_count',
+            # Flattened fields
+            'title', 'type', 'due_date', 'time_limit', 'points'
+        ]
+        read_only_fields = ['id', 'submitted_at', 'graded_at']

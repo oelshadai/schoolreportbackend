@@ -1,5 +1,22 @@
 from rest_framework import serializers
+from accounts.security_config import SecurityValidator
 from .models import Student, Attendance, Behaviour, StudentPromotion, DailyAttendance
+from assignments.models import Assignment, StudentAssignment
+
+
+class StudentAssignmentSerializer(serializers.ModelSerializer):
+    assignment_title = serializers.CharField(source='assignment.title', read_only=True)
+    assignment_type = serializers.CharField(source='assignment.assignment_type', read_only=True)
+    assignment_due_date = serializers.DateTimeField(source='assignment.due_date', read_only=True)
+    assignment_max_score = serializers.IntegerField(source='assignment.max_score', read_only=True)
+    subject_name = serializers.CharField(source='assignment.class_subject.subject.name', read_only=True)
+    
+    class Meta:
+        model = StudentAssignment
+        fields = ['id', 'assignment_title', 'assignment_type', 'assignment_due_date', 
+                 'assignment_max_score', 'subject_name', 'status', 'score', 
+                 'teacher_feedback', 'submitted_at', 'graded_at', 'attempts_count']
+        read_only_fields = ['id', 'submitted_at', 'graded_at']
 
 
 class StudentSerializer(serializers.ModelSerializer):
@@ -14,13 +31,28 @@ class StudentSerializer(serializers.ModelSerializer):
 
 
 class StudentCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating students"""
+    """Serializer for creating students with security validation"""
     generated_password = serializers.CharField(read_only=True)
     generated_username = serializers.CharField(read_only=True)
     
     class Meta:
         model = Student
         exclude = ['school']
+    
+    def validate_student_id(self, value):
+        """Validate student ID using SecurityValidator"""
+        validation = SecurityValidator.validate_student_id(value)
+        if not validation['valid']:
+            raise serializers.ValidationError(validation['error'])
+        return value
+    
+    def validate_email(self, value):
+        """Validate email using SecurityValidator"""
+        if value:
+            validation = SecurityValidator.validate_email(value)
+            if not validation['valid']:
+                raise serializers.ValidationError(validation['error'])
+        return value
         
     def create(self, validated_data):
         student = super().create(validated_data)

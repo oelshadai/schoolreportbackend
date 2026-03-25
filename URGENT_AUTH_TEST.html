@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🚨 URGENT AUTH TEST</title>
+    <style>
+        body { font-family: Arial; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .result { margin: 10px 0; padding: 15px; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button { padding: 12px 24px; margin: 8px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        .credentials { background: #fff3cd; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ffeaa7; }
+        .loading { color: #007bff; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚨 URGENT AUTHENTICATION TEST</h1>
+        <p>This page tests if your authentication endpoints are working correctly.</p>
+        
+        <div class="credentials">
+            <h3>🔑 Test Credentials:</h3>
+            <ul>
+                <li><strong>Student:</strong> TEST001 / testpass123</li>
+                <li><strong>Teacher:</strong> teacher@test.com / testpass123</li>
+                <li><strong>Admin:</strong> admin@test.com / testpass123</li>
+            </ul>
+        </div>
+        
+        <div>
+            <button onclick="testBackend()">1. Test Backend Connection</button>
+            <button onclick="testStudent()">2. Test Student Login</button>
+            <button onclick="testTeacher()">3. Test Teacher Login</button>
+            <button onclick="testAdmin()">4. Test Admin Login</button>
+            <button onclick="clearResults()">Clear Results</button>
+        </div>
+        
+        <div id="results"></div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://127.0.0.1:8000/api';
+        
+        function showResult(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = message;
+            document.getElementById('results').appendChild(div);
+            div.scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+        
+        async function testBackend() {
+            showResult('🔄 Testing backend connection...', 'loading');
+            
+            try {
+                const response = await fetch(`${API_BASE}/auth/csrf-token/`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    showResult(`✅ Backend is running!<br>Status: ${response.status}<br>Response: <pre>${JSON.stringify(data, null, 2)}</pre>`, 'success');
+                } else {
+                    showResult(`⚠️ Backend responded with status ${response.status}`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ Cannot connect to backend: ${error.message}<br><strong>Make sure Django server is running on port 8000!</strong>`, 'error');
+            }
+        }
+        
+        async function testStudent() {
+            showResult('🔄 Testing student login...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/auth/student-login/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        student_id: 'TEST001',
+                        password: 'testpass123'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResult(`✅ Student login SUCCESS!<br>User: ${data.user.first_name} ${data.user.last_name}<br>Role: ${data.user.role}<br>Token received: ${data.access ? 'Yes' : 'No'}`, 'success');
+                } else {
+                    showResult(`❌ Student login FAILED<br>Status: ${response.status}<br>Error: ${data.error || 'Unknown error'}<br>Response: <pre>${JSON.stringify(data, null, 2)}</pre>`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ Student login ERROR: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testTeacher() {
+            showResult('🔄 Testing teacher login...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/auth/teacher-login/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: 'teacher@test.com',
+                        password: 'testpass123'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResult(`✅ Teacher login SUCCESS!<br>User: ${data.user.first_name} ${data.user.last_name}<br>Role: ${data.user.role}<br>Token received: ${data.access ? 'Yes' : 'No'}`, 'success');
+                } else {
+                    showResult(`❌ Teacher login FAILED<br>Status: ${response.status}<br>Error: ${data.error || 'Unknown error'}<br>Response: <pre>${JSON.stringify(data, null, 2)}</pre>`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ Teacher login ERROR: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testAdmin() {
+            showResult('🔄 Testing admin login...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/auth/admin-login/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: 'admin@test.com',
+                        password: 'testpass123'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResult(`✅ Admin login SUCCESS!<br>User: ${data.user.first_name} ${data.user.last_name}<br>Role: ${data.user.role}<br>Token received: ${data.access ? 'Yes' : 'No'}`, 'success');
+                } else {
+                    showResult(`❌ Admin login FAILED<br>Status: ${response.status}<br>Error: ${data.error || 'Unknown error'}<br>Response: <pre>${JSON.stringify(data, null, 2)}</pre>`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ Admin login ERROR: ${error.message}`, 'error');
+            }
+        }
+        
+        // Auto-test backend on page load
+        window.addEventListener('load', () => {
+            setTimeout(testBackend, 500);
+        });
+    </script>
+</body>
+</html>

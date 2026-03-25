@@ -1,38 +1,76 @@
 #!/usr/bin/env python3
 """
-Simple health check script for the Django backend
+Quick health check for the Django backend
 """
-import os
+
+import requests
+import time
 import sys
-import django
-from django.conf import settings
 
-# Add the backend directory to Python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-# Setup Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'school_report_saas.settings')
-django.setup()
-
-def check_health():
-    """Check if the Django application is healthy"""
+def test_backend_health():
+    """Test if backend is responding"""
+    base_url = "http://127.0.0.1:8000"
+    
+    print("🔍 Testing backend health...")
+    
+    # Test basic connectivity
     try:
-        from django.db import connection
-        from django.core.management import execute_from_command_line
+        start_time = time.time()
+        response = requests.get(f"{base_url}/api/", timeout=10)
+        response_time = time.time() - start_time
         
-        # Test database connection
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
+        print(f"✅ Backend responding in {response_time:.2f}s (Status: {response.status_code})")
+        
+        if response_time > 5:
+            print("⚠️ Slow response time - this might cause login timeouts")
             
-        print("✅ Database connection: OK")
-        print("✅ Django application: OK")
-        print("✅ Health check: PASSED")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Health check failed: {e}")
+    except requests.exceptions.Timeout:
+        print("❌ Backend timeout - server is too slow")
         return False
+    except requests.exceptions.ConnectionError:
+        print("❌ Backend not running - start with 'python manage.py runserver'")
+        return False
+    except Exception as e:
+        print(f"❌ Backend error: {e}")
+        return False
+    
+    # Test auth endpoints
+    auth_endpoints = [
+        "/api/auth/student-login/",
+        "/api/auth/teacher-login/", 
+        "/api/auth/admin-login/"
+    ]
+    
+    for endpoint in auth_endpoints:
+        try:
+            start_time = time.time()
+            response = requests.post(f"{base_url}{endpoint}", 
+                                   json={"test": "data"}, 
+                                   timeout=10)
+            response_time = time.time() - start_time
+            
+            if response.status_code in [400, 401]:  # Expected for invalid data
+                print(f"✅ {endpoint} - Working ({response_time:.2f}s)")
+            elif response.status_code == 404:
+                print(f"❌ {endpoint} - Not found")
+            else:
+                print(f"⚠️ {endpoint} - Unexpected status: {response.status_code}")
+                
+        except requests.exceptions.Timeout:
+            print(f"❌ {endpoint} - Timeout")
+        except Exception as e:
+            print(f"❌ {endpoint} - Error: {e}")
+    
+    return True
 
 if __name__ == "__main__":
-    success = check_health()
-    sys.exit(0 if success else 1)
+    success = test_backend_health()
+    if success:
+        print("\n🎉 Backend health check completed!")
+        print("\nIf you're still having login timeouts:")
+        print("1. Restart the Django server")
+        print("2. Clear browser cache")
+        print("3. Check network connection")
+    else:
+        print("\n❌ Backend health check failed!")
+        sys.exit(1)

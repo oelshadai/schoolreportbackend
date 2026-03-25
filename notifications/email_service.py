@@ -119,3 +119,41 @@ class EmailService:
         except Exception as e:
             logger.error(f"Failed to send assignment notification: {e}")
             return False
+    
+    @staticmethod
+    def send_support_ticket_notification(superadmin, ticket):
+        """Send support ticket notification to superadmin"""
+        try:
+            subject = f'Support Ticket: {ticket.subject}'
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #dc2626;">New Support Ticket</h2>
+                <p>Hello {superadmin.first_name},</p>
+                <p>A new support ticket has been submitted:</p>
+                
+                <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <h3 style="margin: 0 0 10px 0;">Ticket Details:</h3>
+                    <p><strong>From:</strong> {ticket.user.get_full_name()} ({ticket.user.email})</p>
+                    <p><strong>Role:</strong> {ticket.user.role}</p>
+                    <p><strong>Subject:</strong> {ticket.subject}</p>
+                    <p><strong>Message:</strong></p>
+                    <div style="background: white; padding: 15px; border-left: 4px solid #dc2626; margin: 10px 0;">
+                        {ticket.message}
+                    </div>
+                    <p><strong>Submitted:</strong> {ticket.created_at.strftime('%B %d, %Y at %I:%M %p')}</p>
+                </div>
+                
+                <p>Please respond to this ticket as soon as possible.</p>
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <p style="color: #6b7280; font-size: 12px;">School Management System</p>
+            </div>
+            """
+            text_content = strip_tags(html_content)
+            
+            email = EmailMultiAlternatives(subject, text_content, settings.DEFAULT_FROM_EMAIL, [superadmin.email])
+            email.attach_alternative(html_content, "text/html")
+            email.send()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send support ticket notification: {e}")
+            return False

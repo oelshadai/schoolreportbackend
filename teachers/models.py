@@ -52,12 +52,13 @@ class Teacher(models.Model):
     
     def get_assigned_classes(self):
         """Get classes where this teacher is the class teacher"""
-        return Class.objects.filter(class_teacher=self.user)
+        from schools.models import Class
+        return Class.objects.filter(class_teacher=self.user).select_related('school')
     
     def get_teaching_subjects(self):
         """Get subjects this teacher is assigned to teach"""
         from schools.models import ClassSubject
-        return ClassSubject.objects.filter(teacher=self.user)
+        return ClassSubject.objects.filter(teacher=self.user).select_related('subject', 'class_instance')
     
     def can_enter_scores_for_subject(self, class_subject):
         """Check if teacher can enter scores for a specific class-subject combination"""

@@ -91,6 +91,38 @@ class SubjectResultViewSet(viewsets.ModelViewSet):
         
         return queryset
 
+    @action(detail=False, methods=['get'], url_path='my-results')
+    def my_results(self, request):
+        """Return subject results for the logged-in student only"""
+        from students.models import Student
+        try:
+            student = Student.objects.get(user=request.user)
+        except Student.DoesNotExist:
+            return Response({'error': 'Student profile not found'}, status=404)
+
+        qs = SubjectResult.objects.filter(
+            student=student
+        ).select_related('class_subject__subject', 'term').order_by('-term__start_date', 'class_subject__subject__name')
+
+        term_id = request.query_params.get('term_id')
+        if term_id:
+            qs = qs.filter(term_id=term_id)
+
+        data = []
+        for r in qs:
+            data.append({
+                'id': r.id,
+                'subject_name': r.class_subject.subject.name,
+                'ca_score': float(r.ca_score),
+                'exam_score': float(r.exam_score),
+                'total_score': float(r.total_score),
+                'grade': r.grade,
+                'remark': r.remark,
+                'term_id': r.term_id,
+                'term_name': str(r.term),
+            })
+        return Response(data)
+
 
 class TermResultViewSet(viewsets.ModelViewSet):
     """Term Result management"""
@@ -114,6 +146,36 @@ class TermResultViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(class_instance_id=class_id)
         
         return queryset
+
+    @action(detail=False, methods=['get'], url_path='my-term-results')
+    def my_term_results(self, request):
+        """Return all term results for the logged-in student"""
+        from students.models import Student
+        try:
+            student = Student.objects.get(user=request.user)
+        except Student.DoesNotExist:
+            return Response({'error': 'Student profile not found'}, status=404)
+
+        qs = TermResult.objects.filter(
+            student=student
+        ).select_related('term', 'class_instance').order_by('-term__start_date')
+
+        data = []
+        for r in qs:
+            data.append({
+                'id': r.id,
+                'term_id': r.term_id,
+                'term_name': str(r.term),
+                'class_name': str(r.class_instance),
+                'total_score': float(r.total_score),
+                'average_score': float(r.average_score),
+                'subjects_count': r.subjects_count,
+                'class_position': r.class_position,
+                'total_students': r.total_students,
+                'teacher_remarks': r.teacher_remarks,
+                'promoted': r.promoted,
+            })
+        return Response(data)
     
     @action(detail=False, methods=['post'])
     def calculate_positions(self, request):
@@ -160,9 +222,9 @@ class ScoreManagementViewSet(viewsets.ViewSet):
         
         data = serializer.validated_data
 
-        # Only teachers can enter scores
+        # Only teachers or admins can enter scores
         user = request.user
-        if getattr(user, 'role', None) != 'TEACHER':
+        if getattr(user, 'role', None) not in ('TEACHER', 'SCHOOL_ADMIN'):
             return Response({"error": "Only teachers can enter scores"}, status=status.HTTP_403_FORBIDDEN)
 
         # Permission checks for teachers
@@ -309,3 +371,200 @@ class ScoreManagementViewSet(viewsets.ViewSet):
         }
         
         return Response(analytics)
+    
+    @action(detail=False, methods=['post'])
+    def clear_all_scores(self, request):
+        """Clear all scores for all students in a specific term and class"""
+        term_id = request.data.get('term_id')
+        class_id = request.data.get('class_id')
+        
+        if not term_id or not class_id:
+            return Response(
+                {"error": "term_id and class_id are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user = request.user
+        if getattr(user, 'role', None) not in ('TEACHER', 'SCHOOL_ADMIN'):
+            return Response({"error": "Only teachers or admins can clear scores"}, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            with transaction.atomic():
+                # Get all students in the specified class
+                students = Student.objects.filter(current_class_id=class_id, school=user.school)
+                
+                # Delete CA scores
+                ca_deleted = ContinuousAssessment.objects.filter(
+                    student__in=students,
+                    term_id=term_id
+                ).delete()
+                
+                # Delete exam scores
+                exam_deleted = ExamScore.objects.filter(
+                    student__in=students,
+                    term_id=term_id
+                ).delete()
+                
+                # Delete subject results
+                subject_deleted = SubjectResult.objects.filter(
+                    student__in=students,
+                    term_id=term_id
+                ).delete()
+                
+                # Delete term results
+                term_deleted = TermResult.objects.filter(
+                    student__in=students,
+                    term_id=term_id
+                ).delete()
+                
+                return Response({
+                    "message": f"Successfully cleared all scores for class",
+                    "students_affected": students.count(),
+                    "ca_scores_deleted": ca_deleted[0],
+                    "exam_scores_deleted": exam_deleted[0],
+                    "subject_results_deleted": subject_deleted[0],
+                    "term_results_deleted": term_deleted[0]
+                }, status=status.HTTP_200_OK)
+                
+        except Exception as e:
+            import traceback
+            print(f"Error in clear_all_scores: {str(e)}")
+            print(f"Traceback: {traceback.format_exc()}")
+            return Response({
+                "error": f"Failed to clear scores: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    def clear_selected_scores(self, request):
+        """Clear scores for selected students in a specific term"""
+        term_id = request.data.get('term_id')
+        student_ids = request.data.get('student_ids', [])
+        
+        if not term_id or not student_ids:
+            return Response(
+                {"error": "term_id and student_ids are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user = request.user
+        if getattr(user, 'role', None) not in ('TEACHER', 'SCHOOL_ADMIN'):
+            return Response({"error": "Only teachers or admins can clear scores"}, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            with transaction.atomic():
+                # Get selected students
+                students = Student.objects.filter(
+                    id__in=student_ids, 
+                    school=user.school
+                )
+                
+                if not students.exists():
+                    return Response(
+                        {"error": "No valid students selected"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Delete CA scores
+                ca_deleted = ContinuousAssessment.objects.filter(
+                    student__in=students,
+                    term_id=term_id
+                ).delete()
+                
+                # Delete exam scores
+                exam_deleted = ExamScore.objects.filter(
+                    student__in=students,
+                    term_id=term_id
+                ).delete()
+                
+                # Delete subject results
+                subject_deleted = SubjectResult.objects.filter(
+                    student__in=students,
+                    term_id=term_id
+                ).delete()
+                
+                # Delete term results
+                term_deleted = TermResult.objects.filter(
+                    student__in=students,
+                    term_id=term_id
+                ).delete()
+                
+                return Response({
+                    "message": f"Successfully cleared scores for {students.count()} selected students",
+                    "students_affected": students.count(),
+                    "student_names": [s.get_full_name() for s in students],
+                    "ca_scores_deleted": ca_deleted[0],
+                    "exam_scores_deleted": exam_deleted[0],
+                    "subject_results_deleted": subject_deleted[0],
+                    "term_results_deleted": term_deleted[0]
+                }, status=status.HTTP_200_OK)
+                
+        except Exception as e:
+            import traceback
+            print(f"Error in clear_selected_scores: {str(e)}")
+            print(f"Traceback: {traceback.format_exc()}")
+            return Response({
+                "error": f"Failed to clear scores: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    def clear_student_subject_scores(self, request):
+        """Clear scores for a specific student and subject"""
+        student_id = request.data.get('student_id')
+        class_subject_id = request.data.get('class_subject_id')
+        term_id = request.data.get('term_id')
+        
+        if not all([student_id, class_subject_id, term_id]):
+            return Response(
+                {"error": "student_id, class_subject_id, and term_id are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user = request.user
+        if getattr(user, 'role', None) not in ('TEACHER', 'SCHOOL_ADMIN'):
+            return Response({"error": "Only teachers or admins can clear scores"}, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            with transaction.atomic():
+                # Verify student exists and belongs to teacher's school
+                student = Student.objects.get(id=student_id, school=user.school)
+                
+                # Delete CA score
+                ca_deleted = ContinuousAssessment.objects.filter(
+                    student_id=student_id,
+                    class_subject_id=class_subject_id,
+                    term_id=term_id
+                ).delete()
+                
+                # Delete exam score
+                exam_deleted = ExamScore.objects.filter(
+                    student_id=student_id,
+                    class_subject_id=class_subject_id,
+                    term_id=term_id
+                ).delete()
+                
+                # Delete subject result
+                subject_deleted = SubjectResult.objects.filter(
+                    student_id=student_id,
+                    class_subject_id=class_subject_id,
+                    term_id=term_id
+                ).delete()
+                
+                return Response({
+                    "message": f"Successfully cleared scores for {student.get_full_name()}",
+                    "ca_scores_deleted": ca_deleted[0],
+                    "exam_scores_deleted": exam_deleted[0],
+                    "subject_results_deleted": subject_deleted[0]
+                }, status=status.HTTP_200_OK)
+                
+        except Student.DoesNotExist:
+            return Response(
+                {"error": "Student not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            import traceback
+            print(f"Error in clear_student_subject_scores: {str(e)}")
+            print(f"Traceback: {traceback.format_exc()}")
+            return Response({
+                "error": f"Failed to clear scores: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

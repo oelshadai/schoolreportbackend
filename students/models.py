@@ -78,9 +78,8 @@ class Student(models.Model):
                     first_name=self.first_name,
                     last_name=self.last_name
                 )
-                # Set role and school if the User model supports it
-                if hasattr(user, 'role'):
-                    user.role = 'STUDENT'
+                # CRITICAL: Always set role and school for student users
+                user.role = 'STUDENT'  # Force student role
                 if hasattr(user, 'school') and self.school:
                     user.school = self.school
                 user.save()
@@ -88,6 +87,11 @@ class Student(models.Model):
             except Exception as e:
                 # Log the error but don't fail the student creation
                 print(f"Warning: Could not create user account for student {self.student_id}: {e}")
+        
+        # Update existing user role if needed
+        elif self.user and self.user.role != 'STUDENT':
+            self.user.role = 'STUDENT'
+            self.user.save(update_fields=['role'])
         
         super().save(*args, **kwargs)
     
@@ -149,6 +153,7 @@ class DailyAttendance(models.Model):
     date = models.DateField()
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='absent')
     marked_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    reason = models.TextField(blank=True, default='', help_text='Student absence/late reason sent to teacher')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

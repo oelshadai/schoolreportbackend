@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["python311", "postgresql"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt"]
+
+[phases.build]
+cmds = ["python manage.py migrate --noinput", "python manage.py collectstatic --noinput"]
+
+[start]
+cmd = "gunicorn school_report_saas.wsgi:application --bind 0.0.0.0:$PORT"

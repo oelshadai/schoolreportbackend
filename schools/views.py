@@ -72,6 +72,30 @@ class TermViewSet(viewsets.ModelViewSet):
             return Term.objects.filter(academic_year__school=user.school)
         return Term.objects.none()
     
+    @action(detail=False, methods=['get'])
+    def current(self, request):
+        """Get the current term for the user's school"""
+        user = request.user
+        if not user.school:
+            return Response(
+                {"error": "User is not associated with a school"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        current_term = Term.objects.filter(
+            academic_year__school=user.school, 
+            is_current=True
+        ).first()
+        
+        if current_term:
+            serializer = self.get_serializer(current_term)
+            return Response(serializer.data)
+        else:
+            return Response(
+                {"error": "No current term set. Please contact admin to configure."}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
     @action(detail=True, methods=['post'])
     def set_current(self, request, pk=None):
         """Set a term as current"""

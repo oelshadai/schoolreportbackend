@@ -15,7 +15,7 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-development-key-chang
 DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = [h.strip() for h in config(
     'ALLOWED_HOSTS',
-    default='localhost,127.0.0.1,*.onrender.com,school-report-saas.onrender.com,testserver'
+    default='localhost,127.0.0.1,*.railway.app,testserver'
 ).split(',')]
 
 # Applications
@@ -32,6 +32,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+    'cloudinary_storage',
+    'cloudinary',
 
     # Local apps
     'accounts',
@@ -43,12 +45,16 @@ INSTALLED_APPS = [
     'assignments',
     'subscriptions',
     'notifications',
+    'events',
+    'fees',
+    'announcements',
+    'timetable',
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',  # must be first
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # Enable for production
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -83,6 +89,9 @@ if DEBUG:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            'OPTIONS': {
+                'timeout': 30,  # 30 second timeout for SQLite
+            },
         }
     }
 else:
@@ -96,6 +105,9 @@ else:
 
 # Custom User
 AUTH_USER_MODEL = 'accounts.User'
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+]
 
 # Sites framework
 SITE_ID = 1
@@ -117,12 +129,15 @@ USE_TZ = True
 # Static & Media
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-MEDIA_URL = 'media/'
+MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Media URL base for PDF generation (deployment)
-MEDIA_URL_BASE = config('MEDIA_URL_BASE', default='https://school-report-saas.onrender.com')
+# Media URL base for absolute URLs in reports
+if DEBUG:
+    MEDIA_URL_BASE = 'http://localhost:8000'
+else:
+    MEDIA_URL_BASE = config('MEDIA_URL_BASE', default='https://your-app.railway.app')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -147,29 +162,31 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# CORS
-CORS_ALLOWED_ORIGINS = [h.strip() for h in config(
-    'CORS_ALLOWED_ORIGINS',
-    default='https://school-report-saas.onrender.com,https://elitetechreport.netlify.app,http://localhost:5173,http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:5173'
-).split(',')]
-CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
-CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
+# CORS Configuration
+if DEBUG:
+    CORS_ALLOWED_ORIGINS = [
+        'http://localhost:8080',
+        'http://localhost:8081',
+        'http://127.0.0.1:8080',
+        'http://127.0.0.1:8081',
+        'http://192.168.8.92:8080',
+        'http://192.168.8.92:8081',
+    ]
+    # EMERGENCY FIX - Allow all origins for development
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOWED_ORIGINS = [h.strip() for h in config(
+        'CORS_ALLOWED_ORIGINS',
+        default='https://your-frontend.railway.app'
+    ).split(',')]
+
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
-CORS_ALLOW_HEADERS = [
-    'accept', 'accept-encoding', 'authorization', 'content-type',
-    'dnt', 'origin', 'user-agent', 'x-csrftoken',
-    'x-requested-with', 'cache-control', 'x-forwarded-for',
-    'x-forwarded-proto', 'x-real-ip'
-]
-CORS_EXPOSE_HEADERS = ['content-type', 'authorization', 'x-total-count']
-CORS_PREFLIGHT_MAX_AGE = 86400
 
-# CSRF trusted origins for production
-CSRF_TRUSTED_ORIGINS = [
-    'https://school-report-saas.onrender.com',
-    'https://elitetechreport.netlify.app'
-]
+# Additional CORS settings for better security
+CORS_ALLOW_ALL_ORIGINS = False if not DEBUG else True
 
+# Allow iframe embedding only for specific report preview views (via @xframe_options_exempt)
 X_FRAME_OPTIONS = 'SAMEORIGIN'
 
 # Cloudinary
@@ -178,6 +195,10 @@ CLOUDINARY_STORAGE = {
     'API_KEY': config('CLOUDINARY_API_KEY', default=''),
     'API_SECRET': config('CLOUDINARY_API_SECRET', default=''),
 }
+
+# Use Cloudinary for media files in production (keeps uploads across deploys)
+if not DEBUG and config('CLOUDINARY_CLOUD_NAME', default=''):
+    DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
 # Email
 if DEBUG:
@@ -192,7 +213,7 @@ EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER or 'noreply@schoolreport.com')
 
-FRONTEND_URL = config('FRONTEND_URL', default='https://elitetechreport.netlify.app')
+FRONTEND_URL = config('FRONTEND_URL', default='https://your-frontend.railway.app')
 
 # Payment
 PAYSTACK_SECRET_KEY = config('PAYSTACK_SECRET_KEY', default='')
@@ -222,6 +243,12 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 2621440  # 2.5MB
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000
 
+# wkhtmltopdf configuration for PDF generation
+if os.name == 'nt':  # Windows
+    WKHTMLTOPDF_CMD = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+else:  # Linux/Unix
+    WKHTMLTOPDF_CMD = '/usr/local/bin/wkhtmltopdf'
+
 
 
 # Logging configuration
@@ -229,26 +256,31 @@ LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
-        'simple': {
-            'format': '{levelname} {asctime} {message}',
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
             'style': '{',
         },
     },
     'handlers': {
         'console': {
-            'level': 'WARNING',
+            'level': 'DEBUG',
             'class': 'logging.StreamHandler',
-            'formatter': 'simple',
+            'formatter': 'verbose',
         },
     },
     'root': {
         'handlers': ['console'],
-        'level': 'WARNING',
+        'level': 'INFO',
     },
     'loggers': {
         'django': {
             'handlers': ['console'],
-            'level': 'WARNING',
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'students.auth_views': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
             'propagate': False,
         },
     },

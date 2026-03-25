@@ -4,9 +4,10 @@ from rest_framework.response import Response
 from django.core.files.base import ContentFile
 from django.utils import timezone
 from django.db import transaction
+from django.conf import settings
 from .models import ReportCard
+from django.views.decorators.clickjacking import xframe_options_exempt
 from .serializers import ReportCardSerializer
-from .pdf_generator import ReportGenerator
 from students.models import Student, Attendance, Behaviour
 from scores.models import SubjectResult, TermResult
 from schools.models import Term
@@ -54,6 +55,158 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             
             return queryset
         return ReportCard.objects.none()
+    
+    def _get_report_context(self, student, term, request):
+        """Get EXACT same context for both preview and PDF generation - SINGLE SOURCE OF TRUTH"""
+        # Get all required data
+        subject_results = SubjectResult.objects.filter(
+            student=student,
+            term=term
+        ).select_related('class_subject__subject')
+        
+        term_result = TermResult.objects.filter(
+            student=student,
+            term=term
+        ).first()
+        
+        attendance = Attendance.objects.filter(
+            student=student,
+            term=term
+        ).first()
+        
+        behaviour = Behaviour.objects.filter(
+            student=student,
+            term=term
+        ).first()
+        
+        # Get class teacher name
+        class_teacher_name = ""
+        if student.current_class and student.current_class.class_teacher:
+            class_teacher_name = student.current_class.class_teacher.get_full_name()
+        
+        # Calculate reopening date
+        from datetime import timedelta
+        reopening_date = term.end_date + timedelta(weeks=2) if term.end_date else None
+        
+        # Calculate total marks for template
+        total_marks_ca = sum(sr.ca_score for sr in subject_results) if subject_results else 0
+        total_marks_exam = sum(sr.exam_score for sr in subject_results) if subject_results else 0
+        total_marks_overall = total_marks_ca + total_marks_exam
+        
+        # Get media URL base for logo display
+        from .utils import get_media_base_url
+        media_url_base = get_media_base_url(request)
+        
+        return {
+            'school': student.school,
+            'student': student,
+            'term': term,
+            'term_result': term_result,
+            'subject_results': subject_results,
+            'class_teacher_name': class_teacher_name,
+            'position': f"{term_result.class_position}/{term_result.total_students}" if (term_result and term_result.class_position) else "N/A",
+            'reopening_date': reopening_date,
+            'attendance': attendance,
+            'behaviour': behaviour,
+            'empty_rows': range(max(0, 9 - subject_results.count())),
+            'total_marks_ca': total_marks_ca,
+            'total_marks_exam': total_marks_exam,
+            'total_marks_overall': total_marks_overall,
+            'media_url_base': media_url_base,
+        }
+    
+    def _get_sample_report_context(self, school, sample_data, request):
+        """Get EXACT same context for sample data - SINGLE SOURCE OF TRUTH"""
+        # Get class teacher name from actual student's class or mock
+        class_teacher_name = ""
+        if hasattr(sample_data['student'], 'current_class') and sample_data['student'].current_class and hasattr(sample_data['student'].current_class, 'class_teacher') and sample_data['student'].current_class.class_teacher:
+            class_teacher_name = sample_data['student'].current_class.class_teacher.get_full_name()
+        
+        # Use actual school term dates if available
+        reopening_date = None
+        if hasattr(sample_data['term'], 'end_date') and sample_data['term'].end_date:
+            from datetime import timedelta
+            reopening_date = sample_data['term'].end_date + timedelta(weeks=2)
+        elif getattr(school, 'term_reopening_date', None):
+            from datetime import datetime
+            reopening_date = datetime.strptime(school.term_reopening_date, '%Y-%m-%d').date()
+        else:
+            from datetime import datetime, timedelta
+            reopening_date = datetime.now().date() + timedelta(weeks=2)
+        
+        # Get media URL base for logo display
+        from .utils import get_media_base_url
+        media_url_base = get_media_base_url(request)
+        
+        return {
+            'school': school,
+            'student': sample_data['student'],
+            'student_name': sample_data['student'].get_full_name() if hasattr(sample_data['student'], 'get_full_name') else f"{sample_data['student'].first_name} {sample_data['student'].last_name}",
+            'term': sample_data['term'],
+            'subject_results': sample_data['subject_results'],
+            'term_result': sample_data['term_result'],
+            'attendance': sample_data['attendance'],
+            'behaviour': sample_data['behaviour'],
+            'class_teacher_name': class_teacher_name,
+            'reopening_date': reopening_date,
+            'position': f"{sample_data['term_result'].position}/{25}",  # Use sample class size
+            'empty_rows': range(max(0, 9 - len(sample_data['subject_results']))),
+            'is_preview': True,
+            'media_url_base': media_url_base,
+            'total_marks_ca': sum(r.ca_score for r in sample_data['subject_results']),
+            'total_marks_exam': sum(r.exam_score for r in sample_data['subject_results']),
+            'total_marks_overall': sum(r.total_score for r in sample_data['subject_results']),
+        }
+
+    @action(detail=False, methods=['post'])
+    def generate_pdf_report(self, request):
+        """Generate PDF report using the EXACT same context and template as preview"""
+        student_id = request.data.get('student_id')
+        term_id = request.data.get('term_id')
+        
+        if not student_id or not term_id:
+            return Response(
+                {"error": "student_id and term_id are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Students can only download their own report; staff can download any in their school
+            if getattr(request.user, 'role', None) == 'STUDENT':
+                from students.models import Student as StudentModel
+                student = StudentModel.objects.get(id=student_id, user=request.user)
+            else:
+                student = Student.objects.get(id=student_id, school=request.user.school)
+            term = Term.objects.get(id=term_id)
+            
+            # Get EXACT same context as preview - SINGLE SOURCE OF TRUTH
+            context = self._get_report_context(student, term, request)
+            
+            # Generate PDF using the same HTML template as preview
+            from .pdf_generator import generate_terminal_report_pdf
+            from django.http import HttpResponse
+            
+            pdf_content = generate_terminal_report_pdf(context)
+            
+            response = HttpResponse(pdf_content, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="{student.student_id}_{term.name}_Report.pdf"'
+            return response
+            
+        except Student.DoesNotExist:
+            return Response(
+                {"error": "Student not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Term.DoesNotExist:
+            return Response(
+                {"error": "Term not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to generate PDF report: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     @action(detail=False, methods=['post'])
     def generate_report(self, request):
@@ -157,25 +310,72 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             if created:
                 report_card.generate_report_code()
             
-            # Generate PDF
-            generator = ReportGenerator(student, student.school, term)
-            pdf_buffer = generator.generate_pdf(
-                subject_results,
-                term_result,
-                attendance,
-                behaviour,
-                report_card.report_code
+            # Generate PDF from HTML template using HTML-to-PDF conversion
+            from django.template.loader import render_to_string
+            from django.http import HttpResponse
+            import subprocess
+            import tempfile
+            import os
+            
+            # Get class teacher name
+            class_teacher_name = ""
+            if student.current_class and student.current_class.class_teacher:
+                class_teacher_name = student.current_class.class_teacher.get_full_name()
+            
+            # Calculate reopening date
+            from datetime import timedelta
+            reopening_date = term.end_date + timedelta(weeks=2) if term.end_date else None
+            
+            # Calculate total marks for template
+            total_marks_ca = sum(sr.ca_score for sr in subject_results) if subject_results else 0
+            total_marks_exam = sum(sr.exam_score for sr in subject_results) if subject_results else 0
+            total_marks_overall = total_marks_ca + total_marks_exam
+            
+            # Get media URL base for logo display
+            from .utils import get_media_base_url
+            media_url_base = get_media_base_url(request)
+            
+            context = {
+                'school': student.school,
+                'student': student,
+                'term': term,
+                'term_result': term_result,
+                'subject_results': subject_results,
+                'class_teacher_name': class_teacher_name,
+                'position': f"{term_result.class_position}/{term_result.total_students}",
+                'reopening_date': reopening_date,
+                'attendance': attendance,
+                'behaviour': behaviour,
+                'empty_rows': range(max(0, 9 - subject_results.count())),
+                'total_marks_ca': total_marks_ca,
+                'total_marks_exam': total_marks_exam,
+                'total_marks_overall': total_marks_overall,
+                'media_url_base': media_url_base,
+            }
+            
+            # Render HTML template
+            html_content = render_to_string('reports/terminal_report.html', context)
+            
+            # For now, return the HTML content (you can add HTML-to-PDF conversion here)
+            # You can use libraries like weasyprint, wkhtmltopdf, or similar
+            
+            # Save HTML content temporarily (replace with actual PDF generation)
+            pdf_filename = f"report_card_{student.student_id}_{term.id}.pdf"
+            
+            # Create or get report card
+            report_card, created = ReportCard.objects.get_or_create(
+                student=student,
+                term=term,
+                defaults={'generated_by': request.user}
             )
             
-            # Generate QR code
-            qr_buffer = generator.generate_qr_code(report_card.report_code)
+            if created:
+                report_card.generate_report_code()
             
-            # Save files
-            pdf_filename = f"report_card_{student.student_id}_{term.id}.pdf"
-            qr_filename = f"qr_{report_card.report_code}.png"
-            
-            report_card.pdf_file.save(pdf_filename, ContentFile(pdf_buffer.read()), save=False)
-            report_card.qr_code.save(qr_filename, ContentFile(qr_buffer.read()), save=False)
+            # TODO: Implement actual HTML-to-PDF conversion here
+            # For now, we'll save the HTML content
+            from django.core.files.base import ContentFile
+            report_card.pdf_file.save(pdf_filename, ContentFile(html_content.encode('utf-8')), save=False)
             
             report_card.status = 'GENERATED'
             report_card.generated_at = timezone.now()
@@ -301,6 +501,11 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             empty_rows_count = max(0, 9 - num_subjects)
             empty_rows = range(empty_rows_count)
             
+            # Calculate total marks for template
+            total_marks_ca = sum(sr.ca_score for sr in subject_results) if subject_results else 0
+            total_marks_exam = sum(sr.exam_score for sr in subject_results) if subject_results else 0
+            total_marks_overall = total_marks_ca + total_marks_exam
+            
             context = {
                 'school': student.school,
                 'student': student,
@@ -312,10 +517,13 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 'reopening_date': reopening_date,
                 'attendance': attendance_obj,
                 'empty_rows': empty_rows,
+                'total_marks_ca': total_marks_ca,
+                'total_marks_exam': total_marks_exam,
+                'total_marks_overall': total_marks_overall,
             }
             
             # Render HTML template
-            html_content = render_to_string('reports/terminal_report_template.html', context)
+            html_content = render_to_string('reports/terminal_report.html', context)
             
             return Response({
                 "success": True,
@@ -383,7 +591,7 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             
             MockSubjectResult = namedtuple('MockSubjectResult', [
                 'class_subject', 'task', 'homework', 'group_work', 'project_work', 
-                'class_test', 'exam_score', 'total_score', 'class_score', 'grade', 'position'
+                'class_test', 'exam_score', 'total_score', 'ca_score', 'grade', 'position'
             ])
             
             MockClassSubject = namedtuple('MockClassSubject', ['subject'])
@@ -425,7 +633,7 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                         class_test=score_data.get('class_test', 0),
                         exam_score=exam_score,
                         total_score=total_score,
-                        class_score=class_score,
+                        ca_score=class_score,
                         grade=grade,
                         position=1  # Default for preview
                     )
@@ -464,7 +672,7 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 'subject_results': [
                     {
                         'subject_name': result.class_subject.subject.name,
-                        'class_score': result.class_score,
+                        'ca_score': result.ca_score,
                         'exam_score': result.exam_score,
                         'total_score': result.total_score,
                         'grade': result.grade,
@@ -539,9 +747,9 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 user = jwt_auth.get_user(validated_token)
                 # Manually set the user for this request
                 request.user = user
-                print(f"Authentication successful for user: {user.email}")
+                # Authentication successful for user
             except (InvalidToken, TokenError) as e:
-                print(f"Token authentication failed: {e}")
+                # Token authentication failed
                 response = HttpResponse(
                     "<h1>Authentication Failed</h1><p>Invalid or expired token.</p>",
                     status=401
@@ -555,19 +763,19 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             from django.http import HttpResponse
             from django.http import HttpResponse
             
-            print(f"Preview request for ID: {preview_id}")
+            # Preview request for ID
             
             # Get preview data from cache instead of session
             from django.core.cache import cache
             preview_data = cache.get(preview_id)
             if not preview_data:
-                print(f"No preview data found in cache for ID: {preview_id}")
+                # No preview data found in cache for ID
                 return HttpResponse(
                     "<h1>Preview Not Found</h1><p>Preview data not found or expired. Please generate a new preview.</p>",
                     status=404
                 )
             
-            print(f"Found preview data: {preview_data}")
+            # Found preview data
             
             # Verify user has access to this preview
             if not request.user.is_authenticated or request.user.id != preview_data.get('user_id'):
@@ -579,11 +787,11 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             student = Student.objects.get(id=preview_data['student_id'], school_id=preview_data['school_id'])
             term = Term.objects.get(id=preview_data['term_id'])
             
-            print(f"Student: {student.get_full_name()}, Term: {term}")
+            # Student and Term info
             
             # Create mock objects from session data
             MockSubjectResult = namedtuple('MockSubjectResult', [
-                'class_subject', 'class_score', 'exam_score', 'total_score', 'grade', 'position'
+                'class_subject', 'ca_score', 'exam_score', 'total_score', 'grade', 'position'
             ])
             MockClassSubject = namedtuple('MockClassSubject', ['subject'])
             MockSubject = namedtuple('MockSubject', ['name'])
@@ -599,7 +807,7 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 mock_class_subject = MockClassSubject(subject=mock_subject)
                 mock_result = MockSubjectResult(
                     class_subject=mock_class_subject,
-                    class_score=result_data['class_score'],
+                    ca_score=result_data['ca_score'],
                     exam_score=result_data['exam_score'],
                     total_score=result_data['total_score'],
                     grade=result_data['grade'],
@@ -607,7 +815,7 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 )
                 subject_results.append(mock_result)
             
-            print(f"Created {len(subject_results)} mock subject results")
+            # Created mock subject results
             
             # Reconstruct term result
             term_result_data = preview_data['term_result']
@@ -653,18 +861,17 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 'is_preview': True,  # Flag to indicate this is a preview
             }
             
-            print(f"Rendering template with context keys: {context.keys()}")
+            # Rendering template with context
             
             # Render HTML template
             from django.shortcuts import render
-            response = render(request, 'reports/terminal_report_template.html', context)
+            response = render(request, 'reports/terminal_report.html', context)
             # Remove X-Frame-Options to allow iframe embedding from frontend
             return response
             
         except Exception as e:
-            print(f"Preview error: {str(e)}")
+            # Preview error
             import traceback
-            print(f"Traceback: {traceback.format_exc()}")
             response = HttpResponse(
                 f"<h1>Preview Error</h1><p>Error: {str(e)}</p><pre>{traceback.format_exc()}</pre>",
                 status=500
@@ -674,11 +881,8 @@ class ReportCardViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='terminal-report-preview/(?P<term_result_id>[^/.]+)')
     def terminal_report_preview(self, request, term_result_id=None):
-        """Preview terminal report as HTML"""
+        """Preview terminal report as HTML using SAME template as PDF"""
         try:
-            from django.template.loader import render_to_string
-            from datetime import datetime, timedelta
-            
             term_result = TermResult.objects.get(id=term_result_id)
             student = term_result.student
             term = term_result.term
@@ -698,47 +902,12 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_403_FORBIDDEN
                     )
             
-            # Get subject results
-            subject_results = SubjectResult.objects.filter(
-                student=student,
-                term=term
-            ).select_related('class_subject__subject')
+            # Use SAME context as PDF generation
+            context = self._get_report_context(student, term, request)
             
-            # Get class teacher name
-            class_teacher_name = ""
-            if student.current_class and student.current_class.class_teacher:
-                class_teacher_name = student.current_class.class_teacher.get_full_name()
-            
-            # Calculate next term reopening date
-            reopening_date = term.end_date + timedelta(weeks=2) if term.end_date else datetime.now().date()
-            
-            # Get attendance data
-            attendance_obj = None
-            try:
-                attendance_obj = Attendance.objects.get(student=student, term=term)
-            except Attendance.DoesNotExist:
-                pass
-            
-            # Prepare empty rows for table
-            empty_rows_count = max(0, 9 - subject_results.count())
-            empty_rows = range(empty_rows_count)
-            
-            context = {
-                'school': student.school,
-                'student': student,
-                'term': term,
-                'term_result': term_result,
-                'subject_results': subject_results,
-                'class_teacher_name': class_teacher_name,
-                'position': f"{term_result.class_position}/{term_result.total_students}",
-                'reopening_date': reopening_date,
-                'attendance': attendance_obj,
-                'empty_rows': empty_rows,
-            }
-            
-            # Render HTML template
+            # Render SAME template as PDF
             from django.shortcuts import render
-            return render(request, 'reports/terminal_report_template.html', context)
+            return render(request, 'reports/terminal_report.html', context)
             
         except TermResult.DoesNotExist:
             return Response(
@@ -800,20 +969,46 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             
             for student in students:
                 try:
-                    # Generate report for each student
-                    subject_results = SubjectResult.objects.filter(student=student, term=term)
+                    # Generate HTML report for each student
+                    from django.template.loader import render_to_string
+                    from datetime import timedelta
                     
-                    if not subject_results.exists():
-                        errors.append(f"No results for {student.get_full_name()}")
-                        continue
+                    # Get class teacher name
+                    class_teacher_name = ""
+                    if student.current_class and student.current_class.class_teacher:
+                        class_teacher_name = student.current_class.class_teacher.get_full_name()
                     
-                    term_result = TermResult.objects.filter(student=student, term=term).first()
-                    if not term_result:
-                        errors.append(f"No term result computed for {student.get_full_name()}")
-                        continue
-                        
-                    attendance = Attendance.objects.filter(student=student, term=term).first()
-                    behaviour = Behaviour.objects.filter(student=student, term=term).first()
+                    # Calculate reopening date
+                    reopening_date = term.end_date + timedelta(weeks=2) if term.end_date else None
+                    
+                    # Calculate total marks
+                    total_marks_ca = sum(sr.ca_score for sr in subject_results) if subject_results else 0
+                    total_marks_exam = sum(sr.exam_score for sr in subject_results) if subject_results else 0
+                    total_marks_overall = total_marks_ca + total_marks_exam
+                    
+                    # Get media URL base
+                    from .utils import get_media_base_url
+                    media_url_base = get_media_base_url(request)
+                    
+                    context = {
+                        'school': student.school,
+                        'student': student,
+                        'term': term,
+                        'term_result': term_result,
+                        'subject_results': subject_results,
+                        'class_teacher_name': class_teacher_name,
+                        'position': f"{term_result.class_position}/{term_result.total_students}",
+                        'reopening_date': reopening_date,
+                        'attendance': attendance,
+                        'behaviour': behaviour,
+                        'empty_rows': range(max(0, 9 - subject_results.count())),
+                        'total_marks_ca': total_marks_ca,
+                        'total_marks_exam': total_marks_exam,
+                        'total_marks_overall': total_marks_overall,
+                        'media_url_base': media_url_base,
+                    }
+                    
+                    html_content = render_to_string('reports/terminal_report.html', context)
                     
                     report_card, created = ReportCard.objects.get_or_create(
                         student=student,
@@ -824,18 +1019,11 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                     if created:
                         report_card.generate_report_code()
                     
-                    generator = ReportGenerator(student, student.school, term)
-                    pdf_buffer = generator.generate_pdf(
-                        subject_results, term_result, attendance, behaviour, report_card.report_code
-                    )
-                    
-                    qr_buffer = generator.generate_qr_code(report_card.report_code)
-                    
                     pdf_filename = f"report_card_{student.student_id}_{term.id}.pdf"
-                    qr_filename = f"qr_{report_card.report_code}.png"
                     
-                    report_card.pdf_file.save(pdf_filename, ContentFile(pdf_buffer.read()), save=False)
-                    report_card.qr_code.save(qr_filename, ContentFile(qr_buffer.read()), save=False)
+                    # TODO: Replace with actual HTML-to-PDF conversion
+                    from django.core.files.base import ContentFile
+                    report_card.pdf_file.save(pdf_filename, ContentFile(html_content.encode('utf-8')), save=False)
                     
                     report_card.status = 'GENERATED'
                     report_card.generated_at = timezone.now()
@@ -862,6 +1050,12 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
+    @action(detail=False, methods=['post'])
+    def publish_bulk(self, request):
+        """Publish multiple report cards at once"""
+        from .publish_bulk import _publish_bulk_impl
+        return _publish_bulk_impl(self, request)
+
     @action(detail=True, methods=['post'])
     def publish(self, request, pk=None):
         """Publish a report card"""
@@ -878,6 +1072,73 @@ class ReportCardViewSet(viewsets.ModelViewSet):
         report_card.save()
         
         return Response({"message": "Report card published successfully"})
+    
+    @action(detail=True, methods=['post'])
+    def unpublish(self, request, pk=None):
+        """Unpublish a report card (retract from student view)"""
+        report_card = self.get_object()
+        
+        if report_card.status != 'PUBLISHED':
+            return Response(
+                {"error": "Report must be published to unpublish"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Revert to GENERATED status so it can be re-published later
+        report_card.status = 'GENERATED'  
+        report_card.published_at = None
+        report_card.save()
+        
+        return Response({
+            "message": "Report unpublished successfully - students can no longer view it",
+            "report_card": ReportCardSerializer(report_card).data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def published_reports(self, request):
+        """Get list of published reports for teacher's class"""
+        user = request.user
+        term_id = request.query_params.get('term_id')
+        
+        if user.role != 'TEACHER':
+            return Response(
+                {"error": "Only teachers can view published reports"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Find teacher's classes
+        from schools.models import Class
+        teacher_classes = Class.objects.filter(school=user.school, class_teacher=user)
+        
+        if not teacher_classes.exists():
+            return Response([])
+        
+        # Get published reports for teacher's class students
+        class_ids = teacher_classes.values_list('id', flat=True)
+        queryset = ReportCard.objects.filter(
+            student__current_class_id__in=class_ids,
+            status='PUBLISHED'
+        )
+        
+        if term_id:
+            queryset = queryset.filter(term_id=term_id)
+            
+        # Select related to reduce database queries
+        queryset = queryset.select_related('student', 'term').order_by('-published_at')
+        
+        # Format the response data
+        published_reports = []
+        for report in queryset:
+            published_reports.append({
+                'id': report.id,
+                'student_name': report.student.get_full_name(),
+                'student_id': report.student.student_id,
+                'report_code': report.report_code,
+                'published_at': report.published_at,
+                'term_name': report.term.name if report.term else 'Unknown Term'
+            })
+        
+        return Response(published_reports)
     
     @action(detail=False, methods=['get'])
     def verify(self, request):
@@ -903,7 +1164,7 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 "message": "Invalid report code"
             })
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[permissions.AllowAny])
     def template_preview(self, request):
         """Generate a sample HTML preview of the report template or PDF with ?format=pdf"""
         from django.template.loader import render_to_string
@@ -948,7 +1209,28 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             # Create sample data for preview
             sample_data = self._create_sample_report_data(school)
             
-            # Generate HTML preview
+            # Generate HTML preview with proper context including actual dates
+            # Get class teacher name from actual student's class or mock
+            class_teacher_name = ""
+            if hasattr(sample_data['student'], 'current_class') and sample_data['student'].current_class and hasattr(sample_data['student'].current_class, 'class_teacher') and sample_data['student'].current_class.class_teacher:
+                class_teacher_name = sample_data['student'].current_class.class_teacher.get_full_name()
+            
+            # Use actual school term dates if available
+            reopening_date = None
+            if hasattr(sample_data['term'], 'end_date') and sample_data['term'].end_date:
+                from datetime import timedelta
+                reopening_date = sample_data['term'].end_date + timedelta(weeks=2)
+            elif getattr(school, 'term_reopening_date', None):
+                from datetime import datetime
+                reopening_date = datetime.strptime(school.term_reopening_date, '%Y-%m-%d').date()
+            else:
+                from datetime import datetime, timedelta
+                reopening_date = datetime.now().date() + timedelta(weeks=2)
+            
+            # Get media URL base for logo display
+            from .utils import get_media_base_url
+            media_url_base = get_media_base_url(request)
+            
             html_context = {
                 'school': school,
                 'student': sample_data['student'],
@@ -958,41 +1240,28 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 'term_result': sample_data['term_result'],
                 'attendance': sample_data['attendance'],
                 'behaviour': sample_data['behaviour'],
-                'is_preview': True
+                'class_teacher_name': class_teacher_name,
+                'reopening_date': reopening_date,
+                'position': f"{sample_data['term_result'].position}/{25}",  # Use sample class size
+                'empty_rows': range(max(0, 9 - len(sample_data['subject_results']))),
+                'is_preview': True,
+                'media_url_base': media_url_base,
+                'total_marks_ca': sum(r.ca_score for r in sample_data['subject_results']),
+                'total_marks_exam': sum(r.exam_score for r in sample_data['subject_results']),
+                'total_marks_overall': sum(r.total_score for r in sample_data['subject_results']),
             }
 
             if request.GET.get('format') == 'pdf':
-                # Render via ReportGenerator to PDF buffer
-                from .pdf_generator import ReportGenerator
-                generator = ReportGenerator(sample_data['student'], school, sample_data['term'])
-                # Build minimal objects the generator expects
-                class ResultObj:
-                    def __init__(self, subject, class_score_50, exam_score_50):
-                        self.class_subject = type('X', (), {'subject': type('S', (), {'name': subject})()})
-                        # Generator computes class_score as sum/2, so double the 50% score here
-                        self.task = class_score_50 * 2
-                        self.homework = 0
-                        self.group_work = 0
-                        self.project_work = 0
-                        self.class_test = 0
-                        self.exam_score = exam_score_50
-
-                subject_results = []
-                for r in sample_data['subject_results']:
-                    subject_results.append(ResultObj(r.subject_name, r.class_score, r.exam_score))
-
-                pdf_buffer = generator.generate_pdf(
-                    subject_results,
-                    sample_data['term_result'],
-                    sample_data['attendance'],
-                    sample_data['behaviour'],
-                    'PREVIEW'
-                )
-                response = HttpResponse(pdf_buffer.getvalue(), content_type='application/pdf')
-                response['Content-Disposition'] = 'inline; filename="template_preview.pdf"'
+                # Return HTML content for PDF conversion
+                from django.template.loader import render_to_string
+                html_content = render_to_string('reports/terminal_report.html', html_context)
+                response = HttpResponse(html_content, content_type='text/html')
+                response['Content-Disposition'] = 'inline; filename="template_preview.html"'
                 return response
             else:
-                html_content = render_to_string('reports/terminal_report_template.html', html_context)
+                # Return HTML preview
+                from django.template.loader import render_to_string
+                html_content = render_to_string('reports/terminal_report.html', html_context)
                 return HttpResponse(html_content, content_type='text/html')
             
         except Exception as e:
@@ -1012,12 +1281,12 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            print(f"Preview data request for school: {school.name}")
+            # Preview data request for school
             
             # Create sample data for preview
             sample_data = self._create_sample_report_data(school)
             
-            print(f"Sample data created successfully")
+            # Sample data created successfully
             
             # Convert namedtuples to dictionaries for JSON serialization
             response_data = {
@@ -1050,8 +1319,8 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 },
                 'subject_results': [
                     {
-                        'subject_name': result.subject_name,
-                        'class_score': result.class_score,
+                        'subject_name': result.class_subject.subject.name,
+                        'ca_score': result.ca_score,
                         'exam_score': result.exam_score,
                         'total_score': result.total_score,
                         'grade': result.grade,
@@ -1077,114 +1346,145 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 }
             }
             
-            print(f"Response data prepared successfully")
+            # Response data prepared successfully
             return Response(response_data)
             
         except Exception as e:
-            print(f"Preview data error: {str(e)}")
+            # Preview data error
             import traceback
-            print(f"Traceback: {traceback.format_exc()}")
             return Response(
                 {"error": f"Failed to generate preview data: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
     def _create_sample_report_data(self, school):
-        """Create sample data for template preview"""
+        """Create sample data for template preview using actual school configuration"""
         try:
             from collections import namedtuple
-            from schools.models import Subject, ClassSubject
+            from schools.models import ClassSubject, AcademicYear, Term
+            from students.models import Student
             import random
             
-            print(f"Creating sample data for school: {school.name}")
+            # Creating sample data for school
             
-            # Sample student data
+            # Get actual student or create realistic sample
+            actual_student = Student.objects.filter(school=school, is_active=True).first()
+            
             class SampleStudent:
-                def __init__(self, school):
-                    self.student_id = "STU001"
-                    self.first_name = "Sample"
-                    self.last_name = "Student" 
-                    self.date_of_birth = "2010-01-15"
-                    # Only set photo if school allows student photos
-                    self.photo = None if not getattr(school, 'show_student_photos', True) else None
-                    self.school = school
-                    # Add comprehensive current_class mock
-                    class MockClass:
-                        def __init__(self):
-                            self.name = "JSS 1A"
-                            self.id = 1
-                            self.level = "JHS"
-                            # Only set class teacher if school requires signature
-                            if getattr(school, 'class_teacher_signature_required', False):
-                                class MockTeacher:
-                                    def get_full_name(self):
-                                        return "Mr. John Doe"
-                                self.class_teacher = MockTeacher()
-                            else:
-                                self.class_teacher = None
-                            
-                        class Students:
-                            def count(self):
-                                return 25
+                def __init__(self, school, actual_student=None):
+                    if actual_student:
+                        self.student_id = actual_student.student_id
+                        self.first_name = actual_student.first_name
+                        self.last_name = actual_student.last_name
+                        self.date_of_birth = actual_student.date_of_birth
+                        self.photo = actual_student.photo if getattr(school, 'show_student_photos', True) else None
+                        self.current_class = actual_student.current_class
+                        self.current_class_id = actual_student.current_class_id
+                    else:
+                        # Fallback to sample data if no students exist
+                        self.student_id = "STU001"
+                        self.first_name = "John"
+                        self.last_name = "Doe" 
+                        self.date_of_birth = "2010-01-15"
+                        self.photo = None
+                        self.current_class_id = 1
                         
-                        students = Students()
-                    self.current_class = MockClass()
-                    self.current_class_id = 1
+                        # Create mock class
+                        class MockClass:
+                            def __init__(self):
+                                self.name = "Basic 9 A"
+                                self.id = 1
+                                self.level = "BASIC_9"
+                                if getattr(school, 'class_teacher_signature_required', False):
+                                    class MockTeacher:
+                                        def get_full_name(self):
+                                            return "Mr. John Doe"
+                                    self.class_teacher = MockTeacher()
+                                else:
+                                    self.class_teacher = None
+                                
+                            class Students:
+                                def count(self):
+                                    return 25
+                            
+                            students = Students()
+                        self.current_class = MockClass()
+                    
+                    self.school = school
                 
                 def get_full_name(self):
                     return f"{self.first_name} {self.last_name}"
             
-            sample_student = SampleStudent(school)
-            print(f"Sample student created: {sample_student.get_full_name()}")
+            sample_student = SampleStudent(school, actual_student)
+            # Sample student created
             
-            # Sample term data with proper academic year
+            # Get actual academic year and term or create sample
+            current_academic_year = AcademicYear.objects.filter(school=school, is_current=True).first()
+            current_term = None
+            
+            if current_academic_year:
+                current_term = Term.objects.filter(academic_year=current_academic_year, is_current=True).first()
+            
             class SampleTerm:
-                def __init__(self):
-                    self.name = "First Term"
-                    self.id = 1
-                    self.start_date = None
-                    self.end_date = None
-                    
-                    class MockAcademicYear:
-                        def __init__(self):
-                            self.name = "2024/2025"
-                            self.id = 1
-                    
-                    self.academic_year = MockAcademicYear()
+                def __init__(self, actual_term=None, school=None):
+                    if actual_term:
+                        self.name = actual_term.get_name_display()
+                        self.id = actual_term.id
+                        self.start_date = actual_term.start_date
+                        self.end_date = actual_term.end_date
+                        self.academic_year = actual_term.academic_year
+                    else:
+                        # Use school's current academic year or fallback
+                        self.name = "First Term"
+                        self.id = 1
+                        self.start_date = None
+                        self.end_date = None
+                        
+                        class MockAcademicYear:
+                            def __init__(self, school):
+                                self.name = getattr(school, 'current_academic_year', '2024/2025')
+                                self.id = 1
+                        
+                        self.academic_year = MockAcademicYear(school)
             
-            sample_term = SampleTerm()
-            print(f"Sample term created: {sample_term.name}")
+            sample_term = SampleTerm(current_term, school)
+            # Sample term created
             
-            # Get actual subjects from the school or use defaults
-            subjects = ['English Language', 'Mathematics', 'Integrated Science', 'Social Studies', 'Religious & Moral Edu.']
-            
-            # Try to get subjects from school's class subjects if available
+            # Get actual subjects from school's class subjects
+            actual_subjects = []
             try:
-                from schools.models import ClassSubject
                 class_subjects = ClassSubject.objects.filter(
                     class_instance__school=school
-                ).select_related('subject')[:8]
+                ).select_related('subject').distinct('subject')[:9]
                 
                 if class_subjects.exists():
-                    subjects = [cs.subject.name for cs in class_subjects]
-                    print(f"Using school subjects: {subjects}")
+                    actual_subjects = [cs.subject.name for cs in class_subjects]
+                    # Using actual school subjects
                 else:
-                    print(f"Using default subjects: {subjects}")
+                    # No class subjects found, using defaults
+                    pass
             except Exception as e:
-                print(f"Error getting school subjects, using defaults: {e}")
-                pass  # Use default subjects
+                # Error getting school subjects
+                pass
+            
+            # Fallback to default subjects if no actual subjects found
+            if not actual_subjects:
+                actual_subjects = ['English Language', 'Mathematics', 'Integrated Science', 'Social Studies', 'Religious & Moral Education', 'French', 'Ghanaian Language']
             
             # Sample subject results using actual subjects
-            SampleSubjectResult = namedtuple('SampleSubjectResult', ['subject_name', 'class_score', 'exam_score', 'total_score', 'grade', 'position'])
+            SampleSubjectResult = namedtuple('SampleSubjectResult', ['class_subject', 'ca_score', 'exam_score', 'total_score', 'grade', 'position'])
+            
+            # Create mock class subject structure to match template expectations
+            MockSubject = namedtuple('MockSubject', ['name'])
+            MockClassSubject = namedtuple('MockClassSubject', ['subject'])
             
             sample_results = []
-            for i, subject in enumerate(subjects):
-                # Keep scores within 0-50 each to reflect 50/50 weighting
-                class_score = random.randint(20, 30)  # class component (already out of 50 for preview)
-                exam_score = random.randint(25, 50)   # exam component (out of 50)
+            for i, subject in enumerate(actual_subjects):
+                class_score = random.randint(20, 30)
+                exam_score = random.randint(25, 50)
                 total = class_score + exam_score
                 
-                # Use safe attribute access for grade scales
+                # Use actual school grade scales
                 grade_scale_a_min = getattr(school, 'grade_scale_a_min', 80)
                 grade_scale_b_min = getattr(school, 'grade_scale_b_min', 70)
                 grade_scale_c_min = getattr(school, 'grade_scale_c_min', 60)
@@ -1201,23 +1501,26 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 else:
                     grade = 'F'
                 
+                # Create mock objects that match template structure
+                mock_subject = MockSubject(name=subject)
+                mock_class_subject = MockClassSubject(subject=mock_subject)
+                
                 sample_results.append(SampleSubjectResult(
-                    subject_name=subject,
-                    class_score=class_score,
+                    class_subject=mock_class_subject,
+                    ca_score=class_score,
                     exam_score=exam_score,
                     total_score=total,
                     grade=grade,
                     position=i + 1
                 ))
             
-            print(f"Created {len(sample_results)} sample subject results")
+            # Created sample subject results
             
             # Sample term result
             SampleTermResult = namedtuple('SampleTermResult', ['total_score', 'average', 'position', 'grade', 'status'])
             total_scores = sum(result.total_score for result in sample_results)
             average = total_scores / len(sample_results) if sample_results else 0
             
-            # Use safe attribute access for grade scales
             grade_scale_b_min = getattr(school, 'grade_scale_b_min', 70)
             grade_scale_d_min = getattr(school, 'grade_scale_d_min', 50)
             
@@ -1229,21 +1532,21 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 status='PROMOTED' if average >= grade_scale_d_min else 'REPEAT'
             )
             
-            print(f"Sample term result created with average: {sample_term_result.average}")
+            # Sample term result created
             
-            # Sample attendance - only create if school shows attendance
+            # Sample attendance - use actual school settings
             SampleAttendance = namedtuple('SampleAttendance', ['days_present', 'days_absent', 'total_days'])
+            sample_attendance = None
             if getattr(school, 'show_attendance', True):
                 sample_attendance = SampleAttendance(
                     days_present=85,
                     days_absent=5,
                     total_days=90
                 )
-            else:
-                sample_attendance = None
             
-            # Sample behaviour - only create if school shows behavior comments
+            # Sample behaviour - use actual school settings
             SampleBehaviour = namedtuple('SampleBehaviour', ['conduct', 'attitude', 'interest', 'class_teacher_remarks'])
+            sample_behaviour = None
             if getattr(school, 'show_behavior_comments', True):
                 sample_behaviour = SampleBehaviour(
                     conduct='Good',
@@ -1251,10 +1554,8 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                     interest='Very Good',
                     class_teacher_remarks='Student shows excellent potential and good behavior in class.'
                 )
-            else:
-                sample_behaviour = None
             
-            print(f"Sample data creation completed successfully")
+            # Sample data creation completed successfully
             
             return {
                 'student': sample_student,
@@ -1266,46 +1567,47 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             }
             
         except Exception as e:
-            print(f"Error in _create_sample_report_data: {str(e)}")
+            # Error in _create_sample_report_data
             import traceback
-            print(f"Traceback: {traceback.format_exc()}")
             raise e
 
 
 from django.views.decorators.clickjacking import xframe_options_exempt
+from django.shortcuts import render
+from django.http import HttpResponse
 
 @xframe_options_exempt
-def template_preview_pdf(request):
-    """Standalone endpoint for template preview (HTML or PDF). Allows iframe embedding."""
-    from django.http import HttpResponse, JsonResponse
-    from rest_framework_simplejwt.authentication import JWTAuthentication
-    from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
-    import traceback
-
+def report_preview_iframe(request):
+    """Secure iframe endpoint for report template preview"""
     try:
-        # Authenticate via Authorization header already handled by middleware OR token query param
+        # Check if user is authenticated through session/JWT
         if not request.user.is_authenticated:
-            token_param = request.GET.get('token')
-            if token_param:
-                try:
-                    jwt_auth = JWTAuthentication()
-                    validated = jwt_auth.get_validated_token(token_param)
-                    user = jwt_auth.get_user(validated)
-                    request.user = user
-                except (InvalidToken, TokenError) as e:
-                    return JsonResponse({'error': f'Invalid token: {str(e)}'}, status=401)
-            else:
-                return JsonResponse({'error': 'Authentication required'}, status=401)
-
+                return HttpResponse(
+                    '<div style="padding: 20px; text-align: center; font-family: Arial;">'
+                    '<h3>Authentication Required</h3>'
+                    '<p>Please <a href="/login" target="_parent">log in</a> to preview report templates.</p>'
+                    '</div>',
+                    status=200
+                )
+        
         school = getattr(request.user, 'school', None)
         if not school:
-            return JsonResponse({'error': 'User must be associated with a school'}, status=400)
-
-        # Reuse helper via a temporary viewset instance
+            return HttpResponse(
+                '<div style="padding: 20px; text-align: center; font-family: Arial;">'
+                '<h3>School Not Found</h3>'
+                '<p>User must be associated with a school to preview reports.</p>'
+                '</div>',
+                status=400
+            )
+        
+        # Reuse the existing sample data generation
         temp_vs = ReportCardViewSet()
         sample_data = temp_vs._create_sample_report_data(school)
-
-        fmt = request.GET.get('format', 'html')
+        
+        # Get media URL base for logo display
+        from .utils import get_media_base_url
+        media_url_base = get_media_base_url(request)
+        
         context = {
             'school': school,
             'student': sample_data['student'],
@@ -1314,61 +1616,293 @@ def template_preview_pdf(request):
             'term_result': sample_data['term_result'],
             'attendance': sample_data['attendance'],
             'behaviour': sample_data['behaviour'],
-            'is_preview': True
+            'is_preview': True,
+            'media_url_base': media_url_base
         }
-
-        if fmt == 'pdf':
-            try:
-                from .pdf_generator import ReportGenerator
-                class ResultObj:
-                    def __init__(self, subject, class_score_50, exam_score_50):
-                        self.class_subject = type('X', (), {'subject': type('S', (), {'name': subject})()})
-                        # Double class score so generator's sum/2 -> 50% value
-                        self.task = class_score_50 * 2
-                        self.homework = 0
-                        self.group_work = 0
-                        self.project_work = 0
-                        self.class_test = 0
-                        self.exam_score = exam_score_50
-
-                subj_results = [ResultObj(r.subject_name, r.class_score, r.exam_score) for r in sample_data['subject_results']]
-                generator = ReportGenerator(sample_data['student'], school, sample_data['term'])
-                pdf_buffer = generator.generate_pdf(
-                    subj_results,
-                    sample_data['term_result'],
-                    sample_data['attendance'],
-                    sample_data['behaviour'],
-                    'PREVIEW'
-                )
-                resp = HttpResponse(pdf_buffer.getvalue(), content_type='application/pdf')
-                resp['Content-Disposition'] = 'inline; filename="template_preview.pdf"'
-                # Ensure no X-Frame-Options header for iframe embedding
-                resp['X-Frame-Options'] = 'ALLOWALL'
-                return resp
-            except Exception as pdf_error:
-                # If PDF generation fails, return error as JSON
-                return JsonResponse({
-                    'error': f'PDF generation failed: {str(pdf_error)}',
-                    'traceback': traceback.format_exc()
-                }, status=500)
-        else:
-            try:
-                from django.template.loader import render_to_string
-                html = render_to_string('reports/preview_template.html', context)
-                resp = HttpResponse(html, content_type='text/html')
-                # Ensure no X-Frame-Options header for iframe embedding
-                resp['X-Frame-Options'] = 'ALLOWALL'
-                return resp
-            except Exception as html_error:
-                # If HTML generation fails, return error as JSON
-                return JsonResponse({
-                    'error': f'HTML generation failed: {str(html_error)}',
-                    'traceback': traceback.format_exc()
-                }, status=500)
-                
+        
+        return render(request, 'reports/terminal_report.html', context)
+        
     except Exception as e:
-        # Catch any other unexpected errors
-        return JsonResponse({
-            'error': f'Preview generation failed: {str(e)}',
-            'traceback': traceback.format_exc()
-        }, status=500)
+        return HttpResponse(
+            f'<div style="padding: 20px; text-align: center; font-family: Arial;">'
+            f'<h3>Preview Error</h3>'
+            f'<p>Error generating preview: {str(e)}</p>'
+            f'</div>',
+            status=500
+        )
+
+
+@xframe_options_exempt
+def template_preview_public(request):
+    """Public template preview that accepts JWT via ?token=... and renders the template.
+
+    This view authenticates a simplejwt token provided in the `token` query param
+    and then reuses the viewset's sample-data helper to render the same template
+    the admin sees (so logos and toggles match).
+    """
+    try:
+        # If user is not authenticated, try to authenticate via JWT token in query param
+        if not request.user.is_authenticated:
+            token_param = request.GET.get('token')
+            if token_param:
+                from rest_framework_simplejwt.authentication import JWTAuthentication
+                from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+
+                try:
+                    jwt_auth = JWTAuthentication()
+                    validated_token = jwt_auth.get_validated_token(token_param)
+                    user = jwt_auth.get_user(validated_token)
+                    request.user = user
+                except (InvalidToken, TokenError):
+                    return HttpResponse(
+                        '<div style="padding:20px; text-align:center;">Invalid token provided. Please <a href="/login" target="_parent">log in</a> again.</div>',
+                        status=200
+                    )
+            else:
+                return HttpResponse(
+                    '<div style="padding:20px; text-align:center;">Authentication required. Please <a href="/login" target="_parent">log in</a>.</div>',
+                    status=200
+                )
+
+        school = getattr(request.user, 'school', None)
+        if not school:
+            return HttpResponse(
+                '<div style="padding:20px; text-align:center;">User must be associated with a school to preview reports.</div>',
+                status=400
+            )
+
+        # Check if this is a student-specific preview with current scores
+        student_id = request.GET.get('student_id')
+        term_id = request.GET.get('term_id')
+        current_scores_param = request.GET.get('current_scores')
+        
+        if student_id and term_id and current_scores_param:
+            # This is a student-specific preview with current scores
+            try:
+                import json
+                from urllib.parse import unquote
+                from collections import namedtuple
+                from schools.models import ClassSubject, Term
+                from students.models import Student, Attendance, Behaviour
+                
+                # Parse the current scores (may be empty if user cleared them)
+                current_scores = json.loads(unquote(current_scores_param))
+                
+                # Get the actual student and term
+                student = Student.objects.get(id=student_id, school=school)
+                term = Term.objects.get(id=term_id)
+                
+                # If current_scores is empty, load from database instead
+                if not current_scores:
+                    from scores.models import SubjectResult
+                    db_results = SubjectResult.objects.filter(
+                        student=student, term=term
+                    ).select_related('class_subject__subject')
+                    
+                    if not db_results.exists():
+                        return HttpResponse(
+                            '<div style="padding:20px; text-align:center; font-family:Arial,sans-serif;"'
+                            '><h3>No Scores Available</h3>'
+                            '<p>No scores have been entered for this student yet.</p></div>',
+                            status=200
+                        )
+                    
+                    for sr in db_results:
+                        current_scores[str(sr.class_subject_id)] = {
+                            'task': 0, 'homework': 0, 'group_work': 0,
+                            'project_work': 0, 'class_test': float(sr.ca_score),
+                            'exam_score': float(sr.exam_score),
+                            '_ca_override': float(sr.ca_score),
+                        }
+                
+                # Create subject results from current scores
+                MockSubjectResult = namedtuple('MockSubjectResult', [
+                    'class_subject', 'ca_score', 'exam_score', 'total_score', 'grade', 'position'
+                ])
+                MockClassSubject = namedtuple('MockClassSubject', ['subject'])
+                MockSubject = namedtuple('MockSubject', ['name'])
+                
+                subject_results = []
+                total_scores_sum = 0
+                subject_count = 0
+                
+                for class_subject_id, score_data in current_scores.items():
+                    try:
+                        class_subject = ClassSubject.objects.get(id=class_subject_id)
+                        
+                        # Calculate scores from the current form data
+                        # Support _ca_override for when we load directly from DB
+                        if '_ca_override' in score_data:
+                            class_score = float(score_data['_ca_override'])
+                        else:
+                            class_score = float(score_data.get('task', 0)) + float(score_data.get('homework', 0)) + \
+                                         float(score_data.get('group_work', 0)) + float(score_data.get('project_work', 0)) + \
+                                         float(score_data.get('class_test', 0))
+                        exam_score = float(score_data.get('exam_score', 0))
+                        total_score = class_score + exam_score
+                        
+                        # Calculate grade using school's grade scale
+                        grade_scale_a_min = getattr(school, 'grade_scale_a_min', 80)
+                        grade_scale_b_min = getattr(school, 'grade_scale_b_min', 70)
+                        grade_scale_c_min = getattr(school, 'grade_scale_c_min', 60)
+                        grade_scale_d_min = getattr(school, 'grade_scale_d_min', 50)
+                        
+                        if total_score >= grade_scale_a_min:
+                            grade = 'A'
+                        elif total_score >= grade_scale_b_min:
+                            grade = 'B'
+                        elif total_score >= grade_scale_c_min:
+                            grade = 'C'
+                        elif total_score >= grade_scale_d_min:
+                            grade = 'D'
+                        else:
+                            grade = 'F'
+                        
+                        # Create mock objects that match template structure
+                        mock_subject = MockSubject(name=class_subject.subject.name)
+                        mock_class_subject = MockClassSubject(subject=mock_subject)
+                        
+                        subject_results.append(MockSubjectResult(
+                            class_subject=mock_class_subject,
+                            ca_score=class_score,
+                            exam_score=exam_score,
+                            total_score=total_score,
+                            grade=grade,
+                            position=1  # Default for preview
+                        ))
+                        
+                        total_scores_sum += total_score
+                        subject_count += 1
+                        
+                    except ClassSubject.DoesNotExist:
+                        continue
+                
+                # Create term result from current scores
+                MockTermResult = namedtuple('MockTermResult', [
+                    'average_score', 'total_score', 'class_position', 'total_students', 
+                    'teacher_remarks', 'promoted'
+                ])
+                
+                average_score = round(total_scores_sum / subject_count, 2) if subject_count > 0 else 0
+                
+                # Calculate real class position based on current scores
+                def calculate_class_position(current_student_id, current_total_score, class_id, term_id):
+                    from scores.models import SubjectResult
+                    from students.models import Student
+                    
+                    # Get all students in the same class
+                    class_students = Student.objects.filter(
+                        current_class_id=class_id, 
+                        is_active=True
+                    ).exclude(id=current_student_id)
+                    
+                    better_students = 0
+                    
+                    for class_student in class_students:
+                        # Get existing subject results for this student
+                        student_results = SubjectResult.objects.filter(
+                            student=class_student,
+                            term_id=term_id
+                        )
+                        
+                        if student_results.exists():
+                            student_total = sum(sr.total_score for sr in student_results)
+                            if student_total > current_total_score:
+                                better_students += 1
+                    
+                    return better_students + 1
+                
+                class_position = calculate_class_position(
+                    student.id, 
+                    total_scores_sum, 
+                    student.current_class_id, 
+                    term_id
+                ) if student.current_class_id else 1
+                
+                term_result = MockTermResult(
+                    average_score=average_score,
+                    total_score=total_scores_sum,
+                    class_position=class_position,
+                    total_students=student.current_class.students.count() if student.current_class else 1,
+                    teacher_remarks="",  # Empty for preview with current scores
+                    promoted=average_score >= getattr(school, 'grade_scale_d_min', 50)
+                )
+                
+                # Get class teacher name
+                class_teacher_name = ""
+                if student.current_class and student.current_class.class_teacher:
+                    class_teacher_name = student.current_class.class_teacher.get_full_name()
+                
+                # Calculate reopening date
+                reopening_date = None
+                if term.end_date:
+                    from datetime import timedelta
+                    reopening_date = term.end_date + timedelta(weeks=2)
+                else:
+                    from datetime import datetime, timedelta
+                    reopening_date = datetime.now().date() + timedelta(weeks=2)
+                
+                # Get real attendance data
+                attendance_obj = None
+                try:
+                    attendance_obj = Attendance.objects.get(student=student, term=term)
+                except Attendance.DoesNotExist:
+                    pass
+                
+                # Get real behavior data
+                behaviour_obj = None
+                try:
+                    behaviour_obj = Behaviour.objects.get(student=student, term=term)
+                except Behaviour.DoesNotExist:
+                    pass
+                
+                # Prepare empty rows for table
+                empty_rows_count = max(0, 9 - len(subject_results))
+                empty_rows = range(empty_rows_count)
+                
+                # Get media URL base for logo display
+                from .utils import get_media_base_url
+                media_url_base = get_media_base_url(request)
+                
+                context = {
+                    'school': school,
+                    'student': student,
+                    'term': term,
+                    'subject_results': subject_results,
+                    'term_result': term_result,
+                    'attendance': attendance_obj,
+                    'behaviour': behaviour_obj,
+                    'class_teacher_name': class_teacher_name,
+                    'reopening_date': reopening_date,
+                    'position': f"{term_result.class_position}/{term_result.total_students}",
+                    'empty_rows': empty_rows,
+                    'is_preview': True,
+                    'total_marks_ca': sum(result.ca_score for result in subject_results),
+                    'total_marks_exam': sum(result.exam_score for result in subject_results),
+                    'total_marks_overall': sum(result.total_score for result in subject_results),
+                    'media_url_base': media_url_base
+                }
+                
+                return render(request, 'reports/terminal_report.html', context)
+                
+            except Exception as e:
+                return HttpResponse(
+                    f'<div style="padding:20px; text-align:center;">Error processing current scores: {str(e)}</div>',
+                    status=500
+                )
+        
+        # Fallback to regular template preview with sample data
+        temp_vs = ReportCardViewSet()
+        temp_vs.request = request
+        sample_data = temp_vs._create_sample_report_data(school)
+
+        # Use SAME context helper as PDF generation
+        html_context = temp_vs._get_sample_report_context(school, sample_data, request)
+
+        # Default: return SAME template as PDF
+        return render(request, 'reports/terminal_report.html', html_context)
+
+    except Exception as e:
+        import traceback
+        return HttpResponse(f'<div style="padding:20px;">Preview error: {str(e)}<pre>{traceback.format_exc()}</pre></div>', status=500)
+

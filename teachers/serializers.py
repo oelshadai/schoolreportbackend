@@ -21,6 +21,7 @@ class TeacherSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     user_id = serializers.IntegerField(source='user.id', read_only=True)
     specializations_detail = SubjectSerializer(source='specializations', many=True, read_only=True)
+    assigned_class = serializers.SerializerMethodField()
 
     class Meta:
         model = Teacher
@@ -29,12 +30,22 @@ class TeacherSerializer(serializers.ModelSerializer):
             'email', 'phone_number', 'full_name', 'hire_date',
             'qualification', 'experience_years', 'emergency_contact',
             'address', 'is_class_teacher', 'is_active',
-            'specializations_detail', 'created_at', 'updated_at'
+            'specializations_detail', 'assigned_class', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'is_class_teacher', 'created_at', 'updated_at']
 
     def get_full_name(self, obj):
         return obj.get_full_name()
+    
+    def get_assigned_class(self, obj):
+        """Get the class where this teacher is assigned as class teacher"""
+        try:
+            assigned_classes = Class.objects.filter(class_teacher=obj.user, school=obj.school)
+            if assigned_classes.exists():
+                return str(assigned_classes.first())
+            return None
+        except Exception:
+            return None
 
 
 class TeacherCreateSerializer(serializers.ModelSerializer):

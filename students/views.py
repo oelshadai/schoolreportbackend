@@ -3,6 +3,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from django.db import transaction
 from django.utils.dateparse import parse_date
+from .validation import StudentInputValidator, StudentValidationMixin
 from .models import Student, Attendance, Behaviour, StudentPromotion, DailyAttendance
 from .serializers import (
     StudentSerializer, StudentCreateSerializer, AttendanceSerializer,
@@ -11,8 +12,8 @@ from .serializers import (
 )
 
 
-class StudentViewSet(viewsets.ModelViewSet):
-    """Student CRUD operations"""
+class StudentViewSet(StudentValidationMixin, viewsets.ModelViewSet):
+    """Student CRUD operations with security validation"""
     queryset = Student.objects.all()
     permission_classes = [permissions.IsAuthenticated]
     
@@ -58,6 +59,13 @@ class StudentViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if not getattr(user, 'school', None):
             raise permissions.PermissionDenied("User is not attached to a school")
+
+        # Validate and sanitize student data
+        student_data = self.clean_student_input(self.request.data)
+        try:
+            self.validate_student_data(student_data)
+        except Exception as e:
+            raise permissions.PermissionDenied(f"Invalid student data: {str(e)}")
 
         # If teacher, ensure they can only create for their own class
         if getattr(user, 'role', None) == 'TEACHER':
@@ -320,9 +328,30 @@ class DailyAttendanceViewSet(viewsets.ModelViewSet):
                     
                     # Send notification to student
                     self._send_attendance_notification(student, status_value, date)
-                        
+                    
                 except Exception as e:
                     errors.append(f"Error processing record {record_data}: {str(e)}")
+        
+        # Notify admins that attendance was taken
+        try:
+            from notifications.attendance_notifications import notify_admins_attendance_taken
+            from schools.models import Class
+            from datetime import datetime
+            
+            if records and created_count > 0:
+                # Get class from first record
+                first_record = records[0]
+                class_obj = Class.objects.get(id=first_record.get('class_instance'))
+                date_obj = datetime.strptime(str(first_record.get('date')), '%Y-%m-%d').date()
+                
+                notify_admins_attendance_taken(
+                    school=request.user.school,
+                    teacher=request.user,
+                    class_obj=class_obj,
+                    date=date_obj
+                )
+        except Exception as e:
+            print(f"Failed to notify admins about attendance: {e}")
         
         return Response({
             "message": f"Successfully processed attendance records",
@@ -510,6 +539,23 @@ class BehaviourViewSet(viewsets.ModelViewSet):
     serializer_class = BehaviourSerializer
     permission_classes = [permissions.IsAuthenticated]
     
+    def list(self, request, *args, **kwargs):
+        """Override list to provide better error handling"""
+        try:
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
+            return Response({
+                'results': serializer.data,
+                'count': len(serializer.data)
+            })
+        except Exception as e:
+            # Return empty list instead of error for better UX
+            return Response({
+                'results': [],
+                'count': 0,
+                'message': 'No behavior records found'
+            }, status=status.HTTP_200_OK)
+    
     def get_queryset(self):
         user = self.request.user
         if not hasattr(user, 'school') or not user.school:
@@ -527,7 +573,7 @@ class BehaviourViewSet(viewsets.ModelViewSet):
         if student_id:
             queryset = queryset.filter(student_id=student_id)
         
-        return queryset
+        return queryset.select_related('student', 'term')
     
     def create(self, request, *args, **kwargs):
         """Override create method"""

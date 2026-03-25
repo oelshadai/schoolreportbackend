@@ -17,7 +17,7 @@ class SchoolSettingsSerializer(serializers.ModelSerializer):
         fields = [
             # Basic Information
             'id', 'name', 'address', 'location', 'phone_number', 'email', 
-            'logo', 'motto', 'website', 'current_academic_year',
+            'logo', 'motto', 'website', 'current_academic_year', 'current_term',
             
             # System Configuration
             'score_entry_mode', 'is_active',
@@ -26,7 +26,7 @@ class SchoolSettingsSerializer(serializers.ModelSerializer):
             'term_closing_date', 'term_reopening_date', 'show_promotion_on_terminal',
             
             # Report Template Settings
-            'report_template', 'report_header_text', 'report_footer_text',
+            'report_template',
             'show_class_average', 'show_position_in_class', 'show_attendance',
             'show_behavior_comments', 'principal_signature', 
             'class_teacher_signature_required', 'show_student_photos', 
@@ -69,22 +69,33 @@ class AcademicYearSerializer(serializers.ModelSerializer):
 
 class TermSerializer(serializers.ModelSerializer):
     academic_year_name = serializers.CharField(source='academic_year.name', read_only=True)
+    display_name = serializers.SerializerMethodField()
     
     class Meta:
         model = Term
         fields = '__all__'
         read_only_fields = ['created_at']
+    
+    def get_display_name(self, obj):
+        """Return formatted display name like '2024/2025 - 1st Term'"""
+        term_names = {
+            'FIRST': '1st Term',
+            'SECOND': '2nd Term', 
+            'THIRD': '3rd Term'
+        }
+        term_display = term_names.get(obj.name, obj.get_name_display())
+        return f"{obj.academic_year.name} - {term_display}"
 
 
 class ClassSerializer(serializers.ModelSerializer):
     class_teacher_name = serializers.SerializerMethodField()
     student_count = serializers.SerializerMethodField()
     level_display = serializers.SerializerMethodField()
+    full_name = serializers.SerializerMethodField()
     
     class Meta:
         model = Class
         fields = '__all__'
-        # 'school' is set from request.user.school in the view; don't require it from the client
         read_only_fields = ['created_at', 'school']
     
     def get_class_teacher_name(self, obj):
@@ -100,6 +111,9 @@ class ClassSerializer(serializers.ModelSerializer):
             return obj.get_level_display()
         except Exception:
             return obj.level
+    
+    def get_full_name(self, obj):
+        return obj.full_name
 
 
 class SubjectSerializer(serializers.ModelSerializer):

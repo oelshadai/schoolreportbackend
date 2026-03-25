@@ -46,3 +46,16 @@ class ReportCard(models.Model):
         import uuid
         self.report_code = f"RC-{self.student.school.id}-{self.student.id}-{self.term.id}-{uuid.uuid4().hex[:8].upper()}"
         self.save()
+    
+    def publish_report(self):
+        """Publish the report card to make it available to students"""
+        if self.status == 'GENERATED':
+            self.status = 'PUBLISHED'
+            self.published_at = timezone.now()
+            self.save()
+            return True
+        return False
+    
+    def is_published(self):
+        """Check if report is published and available to students"""
+        return self.status == 'PUBLISHED'

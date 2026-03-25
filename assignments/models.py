@@ -1,13 +1,14 @@
 from django.db import models
 from django.conf import settings
-from django.core.validators import FileExtensionValidator
+from django.core.validators import FileExtensionValidator, MinValueValidator
+from django.core.exceptions import ValidationError
+from django.utils import timezone
 from students.models import Student
 from schools.models import ClassSubject, Class, Term
-from django.utils import timezone
 
 
 class Assignment(models.Model):
-    """Assignment created by teachers"""
+    """Assignment created by teachers with academic enforcement"""
     
     ASSIGNMENT_TYPES = [
         ('HOMEWORK', 'Homework'),
@@ -19,18 +20,32 @@ class Assignment(models.Model):
     
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
+        ('PREVIEW', 'Preview'),
         ('PUBLISHED', 'Published'),
         ('CLOSED', 'Closed'),
     ]
     
     title = models.CharField(max_length=200)
     description = models.TextField()
+    instructions = models.TextField(help_text="Detailed instructions are required for academic clarity")
     assignment_type = models.CharField(max_length=20, choices=ASSIGNMENT_TYPES, default='HOMEWORK')
     
-    # Assignment targeting
+    # TRANSITIONAL: Academic targeting - nullable during migration
     class_instance = models.ForeignKey(Class, on_delete=models.CASCADE, related_name='assignments')
-    class_subject = models.ForeignKey(ClassSubject, on_delete=models.CASCADE, related_name='assignments', null=True, blank=True)
-    term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name='assignments')
+    class_subject = models.ForeignKey(
+        ClassSubject, 
+        on_delete=models.CASCADE, 
+        related_name='assignments',
+        null=True, blank=True,  # TRANSITIONAL: Will be required after data migration
+        help_text='Subject is mandatory for academic categorization'
+    )
+    term = models.ForeignKey(
+        Term, 
+        on_delete=models.CASCADE, 
+        related_name='assignments',
+        null=True, blank=True,  # TRANSITIONAL: Will be required after data migration
+        help_text='Academic term for this assignment'
+    )
     
     # Teacher who created it
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_assignments')
@@ -46,8 +61,19 @@ class Assignment(models.Model):
     # Timing
     start_date = models.DateTimeField(null=True, blank=True, help_text="When assignment becomes available")
     due_date = models.DateTimeField()
-    time_limit = models.IntegerField(null=True, blank=True, help_text="Time limit in minutes for quiz/exam")
+    time_limit = models.IntegerField(
+        null=True, blank=True, 
+        help_text="Time limit in minutes for quiz/exam",
+        validators=[MinValueValidator(1)]
+    )
     max_score = models.IntegerField(default=10)
+    
+    # TRANSITIONAL: Academic attempt control - safe defaults
+    max_attempts = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+        help_text='Maximum submission attempts allowed'
+    )
     
     # Quiz settings
     is_timed = models.BooleanField(default=False)
@@ -57,29 +83,86 @@ class Assignment(models.Model):
     # Status
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT')
     
+    # Enhanced fields
+    instructions_file = models.FileField(
+        upload_to='assignment_instructions/', 
+        null=True, 
+        blank=True,
+        validators=[FileExtensionValidator(allowed_extensions=['pdf', 'doc', 'docx'])]
+    )
+    allow_file_submission = models.BooleanField(default=True)
+    allow_text_submission = models.BooleanField(default=True)
+    max_file_size = models.IntegerField(default=10, help_text="Maximum file size in MB")
+    allowed_file_types = models.CharField(
+        max_length=200, 
+        default='pdf,doc,docx,jpg,png,txt',
+        help_text="Comma-separated file extensions"
+    )
+    
+    published_at = models.DateTimeField(null=True, blank=True)
+    previewed_at = models.DateTimeField(null=True, blank=True)
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         db_table = 'assignments'
         ordering = ['-created_at']
+        # TRANSITIONAL: No database constraints during migration
+        # Will be added in Phase 3 after data migration
     
-    def __str__(self):
-        return f"{self.title} - {self.class_instance}"
+    def clean(self):
+        """PRODUCTION-SAFE: Academic validation with workflow awareness"""
+        from django.core.exceptions import ValidationError
+        
+        # TRANSITIONAL: Skip validation if fields are still being migrated
+        if not hasattr(self, 'class_subject') or not hasattr(self, 'term'):
+            return
+            
+        # Validate teacher owns the subject (if class_subject exists)
+        if self.class_subject and self.created_by:
+            if self.class_subject.teacher != self.created_by:
+                raise ValidationError('You do not teach this subject in this class')
+        
+        # WORKFLOW-AWARE ENFORCEMENT: Only validate when status requires it
+        if self.status in ['PUBLISHED', 'ACTIVE']:
+            # Require class_subject for published assignments
+            if not self.class_subject:
+                raise ValidationError('Subject assignment is required for published assignments')
+                
+            # Require term for published assignments
+            if not self.term:
+                raise ValidationError('Term is required for published assignments')
+                
+            # Type-specific validation for ACTIVE assignments only
+            if self.assignment_type == 'PROJECT' and not self.allow_file_submission:
+                raise ValidationError('Projects must allow file submission')
+            
+            if self.assignment_type in ['QUIZ', 'EXAM']:
+                if not self.is_timed or not self.time_limit:
+                    raise ValidationError(f'{self.assignment_type} must have time limit')
+            
+            if self.assignment_type == 'EXAM' and self.max_attempts != 1:
+                raise ValidationError('Exams allow only 1 attempt')
     
-    @property
-    def is_quiz_or_exam(self):
-        return self.assignment_type in ['QUIZ', 'EXAM']
+    def save(self, *args, **kwargs):
+        # Skip validation if explicitly requested or if it's a draft
+        skip_validation = kwargs.pop('skip_validation', False)
+        if not skip_validation and self.status not in ['DRAFT', 'PREVIEW']:
+            self.full_clean()
+        super().save(*args, **kwargs)
 
 
 class StudentAssignment(models.Model):
-    """Student's work on an assignment"""
+    """Student's work on an assignment with academic enforcement"""
     
     SUBMISSION_STATUS = [
         ('NOT_STARTED', 'Not Started'),
         ('IN_PROGRESS', 'In Progress'),
         ('SUBMITTED', 'Submitted'),
         ('GRADED', 'Graded'),
+        ('LOCKED', 'Locked'),
+        ('EXPIRED', 'Expired'),
     ]
     
     assignment = models.ForeignKey(Assignment, on_delete=models.CASCADE, related_name='student_assignments')
@@ -98,14 +181,17 @@ class StudentAssignment(models.Model):
     score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     teacher_feedback = models.TextField(blank=True)
     
-    # Attempt tracking
-    attempts_count = models.IntegerField(default=0, help_text="Number of times student has attempted this assignment")
-    max_attempts = models.IntegerField(default=2, help_text="Maximum number of attempts allowed")
+    # Academic attempt tracking
+    attempts_count = models.IntegerField(default=0, help_text="Number of attempts made")
+    current_attempt_started_at = models.DateTimeField(null=True, blank=True)
+    is_locked = models.BooleanField(default=False, help_text="Locked during timed attempts")
     
     # Status and timing
     status = models.CharField(max_length=20, choices=SUBMISSION_STATUS, default='NOT_STARTED')
     submitted_at = models.DateTimeField(null=True, blank=True)
     graded_at = models.DateTimeField(null=True, blank=True)
+    
+    additional_files = models.JSONField(default=list, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -115,23 +201,78 @@ class StudentAssignment(models.Model):
         unique_together = ['assignment', 'student']
         ordering = ['-created_at']
     
-    def __str__(self):
-        return f"{self.student.get_full_name()} - {self.assignment.title}"
+    def can_start_attempt(self):
+        """Check if student can start new attempt"""
+        if self.status in ['GRADED', 'LOCKED', 'EXPIRED']:
+            return False, 'Assignment is no longer available'
+        
+        if self.attempts_count >= self.assignment.max_attempts:
+            return False, f'Maximum attempts ({self.assignment.max_attempts}) exceeded'
+        
+        # Check if currently in progress
+        if self.status == 'IN_PROGRESS' and self.current_attempt_started_at:
+            if self.assignment.is_timed:
+                elapsed = timezone.now() - self.current_attempt_started_at
+                if elapsed.total_seconds() < (self.assignment.time_limit * 60):
+                    return False, 'Attempt already in progress'
+        
+        return True, 'Can start attempt'
     
-    @property
-    def is_overdue(self):
-        from django.utils import timezone
-        return self.assignment.due_date < timezone.now() and self.status != 'SUBMITTED'
+    def start_attempt(self):
+        """Start new attempt with academic enforcement"""
+        can_start, message = self.can_start_attempt()
+        if not can_start:
+            raise ValidationError(message)
+        
+        self.attempts_count += 1
+        self.current_attempt_started_at = timezone.now()
+        self.status = 'IN_PROGRESS'
+        
+        # Lock for exams
+        if self.assignment.assignment_type == 'EXAM':
+            self.is_locked = True
+        
+        self.save()
     
-    @property
-    def can_attempt(self):
-        """Check if student can still attempt this assignment"""
-        return self.attempts_count < self.max_attempts and self.status != 'GRADED'
+    def check_time_limit(self):
+        """Check if time limit exceeded"""
+        if not self.assignment.is_timed or not self.current_attempt_started_at:
+            return False
+        
+        elapsed = timezone.now() - self.current_attempt_started_at
+        return elapsed.total_seconds() > (self.assignment.time_limit * 60)
     
-    @property
-    def attempts_remaining(self):
-        """Get remaining attempts"""
-        return max(0, self.max_attempts - self.attempts_count)
+    def auto_submit_if_expired(self):
+        """Auto-submit if time limit exceeded"""
+        if self.check_time_limit() and self.status == 'IN_PROGRESS':
+            self.status = 'EXPIRED'
+            self.submitted_at = timezone.now()
+            self.is_locked = False
+            self.save()
+            return True
+        return False
+    
+    def submit(self, submission_data=None):
+        """Submit assignment with academic validation"""
+        from django.core.exceptions import ValidationError
+        
+        # Check if expired
+        if self.auto_submit_if_expired():
+            raise ValidationError('Time limit exceeded - assignment auto-submitted')
+        
+        # Validate submission based on type
+        if self.assignment.assignment_type == 'PROJECT':
+            if not self.submission_file and not (submission_data and submission_data.get('file')):
+                raise ValidationError('Projects require file submission')
+        
+        if self.assignment.assignment_type in ['QUIZ', 'EXAM']:
+            if not submission_data or not submission_data.get('answers'):
+                raise ValidationError('Quiz/Exam requires answers')
+        
+        self.status = 'SUBMITTED'
+        self.submitted_at = timezone.now()
+        self.is_locked = False
+        self.save()
 
 
 class AssignmentAttempt(models.Model):
@@ -166,6 +307,10 @@ class AssignmentAttempt(models.Model):
     submitted_at = models.DateTimeField(null=True, blank=True)
     graded_at = models.DateTimeField(null=True, blank=True)
     
+    # From migration 0006
+    additional_files = models.JSONField(default=list, blank=True, help_text="List of additional file URLs")
+    time_spent = models.IntegerField(default=0, help_text="Time spent in seconds")
+    
     class Meta:
         db_table = 'assignment_attempts'
         unique_together = ['student_assignment', 'attempt_number']
@@ -197,21 +342,38 @@ class Question(models.Model):
     """Questions for quiz/exam assignments"""
     
     QUESTION_TYPES = [
-        ('MULTIPLE_CHOICE', 'Multiple Choice'),
-        ('TRUE_FALSE', 'True/False'),
-        ('SHORT_ANSWER', 'Short Answer'),
-        ('ESSAY', 'Essay'),
+        ('mcq', 'Multiple Choice'),
+        ('short_answer', 'Short Answer'),
+        ('project', 'Project/Practical'),
     ]
     
     assignment = models.ForeignKey(Assignment, on_delete=models.CASCADE, related_name='questions')
     question_text = models.TextField()
-    question_type = models.CharField(max_length=20, choices=QUESTION_TYPES)
+    question_type = models.CharField(max_length=20, choices=QUESTION_TYPES, default='mcq')
     points = models.IntegerField(default=1)
     order = models.IntegerField(default=0)
     
-    # For short answer questions
+    # For short answer questions - from migration 0008
     expected_answer = models.TextField(blank=True, help_text="Expected answer for short answer questions")
     case_sensitive = models.BooleanField(default=False, help_text="Whether answer matching is case sensitive")
+    word_limit = models.IntegerField(null=True, blank=True, help_text="Maximum word count for short answer")
+    character_limit = models.IntegerField(null=True, blank=True, help_text="Maximum character count for short answer")
+    
+    # For project questions - from migration 0008
+    allowed_file_types = models.JSONField(default=list, blank=True, help_text="List of allowed file extensions")
+    max_file_size = models.IntegerField(default=10, help_text="Maximum file size in MB")
+    max_files = models.IntegerField(default=5, help_text="Maximum number of files allowed")
+    
+    # From migration 0006
+    question_image = models.ImageField(upload_to='question_images/', null=True, blank=True)
+    question_file = models.FileField(
+        upload_to='question_files/', 
+        null=True, 
+        blank=True,
+        validators=[FileExtensionValidator(allowed_extensions=['pdf', 'doc', 'docx', 'txt'])]
+    )
+    is_required = models.BooleanField(default=True)
+    explanation = models.TextField(blank=True, help_text="Explanation shown after answering")
     
     created_at = models.DateTimeField(auto_now_add=True)
     
@@ -224,7 +386,7 @@ class Question(models.Model):
     
     def check_short_answer(self, student_answer):
         """Check if student's short answer is correct"""
-        if self.question_type != 'SHORT_ANSWER' or not self.expected_answer:
+        if self.question_type != 'short_answer' or not self.expected_answer:
             return False
         
         expected = self.expected_answer.strip()
@@ -235,6 +397,26 @@ class Question(models.Model):
             student = student.lower()
         
         return expected == student
+    
+    def validate_file_upload(self, file):
+        """Validate uploaded file for project questions"""
+        if self.question_type != 'project':
+            return True, "Not a project question"
+        
+        if not file:
+            return False, "No file uploaded"
+        
+        # Check file size
+        if file.size > self.max_file_size * 1024 * 1024:  # Convert MB to bytes
+            return False, f"File size exceeds {self.max_file_size}MB limit"
+        
+        # Check file type
+        if self.allowed_file_types:
+            file_ext = file.name.split('.')[-1].lower()
+            if file_ext not in [ext.lower() for ext in self.allowed_file_types]:
+                return False, f"File type .{file_ext} not allowed. Allowed types: {', '.join(self.allowed_file_types)}"
+        
+        return True, "File is valid"
 
 
 class QuestionOption(models.Model):
@@ -455,6 +637,19 @@ class QuizAnswer(models.Model):
     # For text answers
     answer_text = models.TextField(blank=True)
     
+    # For file uploads (project questions) - LEGACY: Keep during transition
+    answer_files = models.JSONField(default=list, blank=True, help_text="List of uploaded file paths - DEPRECATED")
+    
+    # From migration 0006
+    answer_file = models.FileField(
+        upload_to='answer_files/', 
+        null=True, 
+        blank=True,
+        validators=[FileExtensionValidator(allowed_extensions=['pdf', 'doc', 'docx', 'jpg', 'png', 'txt'])]
+    )
+    teacher_comment = models.TextField(blank=True)
+    graded_at = models.DateTimeField(null=True, blank=True)
+    
     # Grading
     is_correct = models.BooleanField(null=True, blank=True)
     points_earned = models.DecimalField(max_digits=5, decimal_places=2, default=0)
@@ -469,28 +664,111 @@ class QuizAnswer(models.Model):
         return f"{self.attempt.student.get_full_name()} - Q{self.question.order}"
     
     def check_answer(self):
-        """Auto-check answer for multiple choice, true/false, and short answer"""
-        if self.question.question_type == 'MULTIPLE_CHOICE':
+        """Auto-check answer for multiple choice and short answer"""
+        if self.question.question_type == 'mcq':
             if self.selected_option and self.selected_option.is_correct:
                 self.is_correct = True
                 self.points_earned = self.question.points
             else:
                 self.is_correct = False
                 self.points_earned = 0
-        elif self.question.question_type == 'TRUE_FALSE':
-            correct_option = self.question.options.filter(is_correct=True).first()
-            if self.selected_option and self.selected_option == correct_option:
-                self.is_correct = True
-                self.points_earned = self.question.points
-            else:
-                self.is_correct = False
-                self.points_earned = 0
-        elif self.question.question_type == 'SHORT_ANSWER':
+        elif self.question.question_type == 'short_answer':
             if self.question.check_short_answer(self.answer_text):
                 self.is_correct = True
                 self.points_earned = self.question.points
             else:
                 self.is_correct = False
                 self.points_earned = 0
+        elif self.question.question_type == 'project':
+            # Project questions require manual grading
+            self.is_correct = None  # Pending manual review
+            self.points_earned = 0
         
         self.save()
+
+
+class SubmissionFile(models.Model):
+    """File submissions for assignments - from migration 0006"""
+    
+    student_assignment = models.ForeignKey(StudentAssignment, on_delete=models.CASCADE, related_name='files')
+    attempt = models.ForeignKey(AssignmentAttempt, on_delete=models.CASCADE, related_name='files', null=True, blank=True)
+    
+    file = models.FileField(
+        upload_to='submission_files/',
+        validators=[FileExtensionValidator(allowed_extensions=['pdf', 'doc', 'docx', 'jpg', 'png', 'txt', 'zip'])]
+    )
+    original_filename = models.CharField(max_length=255)
+    file_size = models.IntegerField(help_text="File size in bytes")
+    file_type = models.CharField(max_length=50)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'submission_files'
+        ordering = ['-uploaded_at']
+    
+    def __str__(self):
+        return f"{self.original_filename} - {self.student_assignment}"
+
+
+class QuestionFile(models.Model):
+    """File answers for quiz questions - from migration 0006"""
+    
+    answer = models.ForeignKey(QuizAnswer, on_delete=models.CASCADE, related_name='files')
+    
+    file = models.FileField(
+        upload_to='answer_files/',
+        validators=[FileExtensionValidator(allowed_extensions=['pdf', 'doc', 'docx', 'jpg', 'png', 'txt'])]
+    )
+    original_filename = models.CharField(max_length=255)
+    file_size = models.IntegerField(help_text="File size in bytes")
+    file_type = models.CharField(max_length=50)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'question_files'
+        ordering = ['-uploaded_at']
+    
+    def __str__(self):
+        return f"{self.original_filename} - {self.answer}"
+
+
+# NEW ADDITIVE MODEL - QuizAnswerFile for professional file uploads
+class QuizAnswerFile(models.Model):
+    """
+    Professional per-question file uploads for project questions.
+    ADDITIVE ONLY - does not replace legacy answer_files JSONField.
+    """
+    quiz_answer = models.ForeignKey(
+        QuizAnswer,
+        on_delete=models.CASCADE,
+        related_name='uploaded_files'
+    )
+
+    file = models.FileField(
+        upload_to='quiz_submissions/%Y/%m/',
+        validators=[
+            FileExtensionValidator(
+                allowed_extensions=['pdf','doc','docx','jpg','jpeg','png','txt','zip']
+            )
+        ]
+    )
+
+    original_filename = models.CharField(max_length=255)
+    file_size = models.PositiveIntegerField()
+    mime_type = models.CharField(max_length=100)
+
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'quiz_answer_files'
+        ordering = ['uploaded_at']
+
+    def __str__(self):
+        return f"{self.original_filename} - {self.quiz_answer.question.question_text[:30]}..."
+
+    def save(self, *args, **kwargs):
+        import mimetypes
+        if self.file:
+            self.file_size = self.file.size
+            self.mime_type = mimetypes.guess_type(self.original_filename or self.file.name)[0] or 'application/octet-stream'
+        super().save(*args, **kwargs)

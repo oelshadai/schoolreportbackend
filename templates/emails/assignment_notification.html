@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>New Assignment Notification</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #007bff; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background-color: #f8f9fa; }
+        .assignment-details { background-color: white; padding: 15px; border-radius: 5px; margin: 15px 0; }
+        .button { display: inline-block; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>New Assignment Published</h1>
+        </div>
+        
+        <div class="content">
+            <p>Dear Parent/Guardian,</p>
+            
+            <p>A new assignment has been published for your child <strong>{{ student.get_full_name }}</strong> in <strong>{{ class_name }}</strong>.</p>
+            
+            <div class="assignment-details">
+                <h3>{{ assignment.title }}</h3>
+                <p><strong>Type:</strong> {{ assignment.get_assignment_type_display }}</p>
+                <p><strong>Description:</strong> {{ assignment.description }}</p>
+                <p><strong>Due Date:</strong> {{ due_date|date:"F d, Y \a\t g:i A" }}</p>
+                <p><strong>Maximum Score:</strong> {{ assignment.max_score }} points</p>
+            </div>
+            
+            <p>Your child can access this assignment through the student portal.</p>
+            
+            <p style="text-align: center;">
+                <a href="{{ assignment_url }}" class="button">View Assignment</a>
+            </p>
+            
+            <p>Please ensure your child completes the assignment before the due date.</p>
+            
+            <p>Best regards,<br>
+            {{ assignment.created_by.get_full_name }}<br>
+            {{ class_name }} Teacher</p>
+        </div>
+        
+        <div class="footer">
+            <p>This is an automated notification from the School Management System.</p>
+        </div>
+    </div>
+</body>
+</html>
