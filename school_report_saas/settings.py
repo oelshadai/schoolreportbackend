@@ -15,7 +15,7 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-development-key-chang
 DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = [h.strip() for h in config(
     'ALLOWED_HOSTS',
-    default='localhost,127.0.0.1,*.railway.app,testserver'
+    default='localhost,127.0.0.1,*.railway.app,*.onrender.com,testserver'
 ).split(',')]
 
 # Applications
