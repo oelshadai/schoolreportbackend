@@ -95,13 +95,23 @@ if DEBUG:
         }
     }
 else:
-    DATABASES = {
-        "default": dj_database_url.parse(
-            os.environ.get("DATABASE_URL"),
-            conn_max_age=600,
-            ssl_require=True
-        )
-    }
+    database_url = os.environ.get("DATABASE_URL", "")
+    if database_url:
+        DATABASES = {
+            "default": dj_database_url.parse(
+                database_url,
+                conn_max_age=600,
+                ssl_require=True
+            )
+        }
+    else:
+        # Fallback to SQLite if DATABASE_URL not set (shouldn't happen in production)
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': BASE_DIR / 'db.sqlite3',
+            }
+        }
 
 # Custom User
 AUTH_USER_MODEL = 'accounts.User'
