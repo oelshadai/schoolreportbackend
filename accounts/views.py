@@ -19,6 +19,7 @@ import time
 import re
 import secrets
 import string
+from typing import Dict, Any
 from .security_middleware import SecurityConfig, ThreatDetector, SessionManager, AuditLogger
 from .security_config import SecuritySettings, SecurityValidator
 
