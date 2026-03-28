@@ -8,8 +8,15 @@ from datetime import date
 User = get_user_model()
 
 
+class SchoolBriefSerializer(serializers.ModelSerializer):
+    """Brief school info for user profile"""
+    class Meta:
+        model = School
+        fields = ['id', 'name']
+
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for the custom User model"""
+    school = SchoolBriefSerializer(read_only=True)
 
     class Meta:
         model = User

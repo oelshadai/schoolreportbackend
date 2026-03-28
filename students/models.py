@@ -71,22 +71,27 @@ class Student(models.Model):
             school_domain = self.school.name.lower().replace(' ', '').replace('-', '') if self.school else 'school'
             email = f"{self.username}@{school_domain}.edu"
             
+            # Ensure email is unique
+            counter = 1
+            base_email = email
+            while User.objects.filter(email=email).exists():
+                email = f"{self.username}_{counter}@{school_domain}.edu"
+                counter += 1
+            
             try:
                 user = User.objects.create_user(
                     email=email,
                     password=self.password,
                     first_name=self.first_name,
-                    last_name=self.last_name
+                    last_name=self.last_name,
+                    role='STUDENT',
+                    school=self.school,
                 )
-                # CRITICAL: Always set role and school for student users
-                user.role = 'STUDENT'  # Force student role
-                if hasattr(user, 'school') and self.school:
-                    user.school = self.school
-                user.save()
                 self.user = user
             except Exception as e:
                 # Log the error but don't fail the student creation
-                print(f"Warning: Could not create user account for student {self.student_id}: {e}")
+                import logging
+                logging.getLogger(__name__).error(f"Could not create user account for student {self.student_id}: {e}")
         
         # Update existing user role if needed
         elif self.user and self.user.role != 'STUDENT':

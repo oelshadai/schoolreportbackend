@@ -20,3 +20,6 @@ except Exception as e:
 
 python manage.py collectstatic --noinput
 python manage.py migrate --noinput
+
+# Fix any students that are missing user accounts
+python manage.py fix_student_users || true

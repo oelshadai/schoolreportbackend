@@ -83,8 +83,14 @@ class SecureTokenObtainPairView(TokenObtainPairView):
                 'user': {
                     'id': user.id,
                     'email': user.email,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'phone_number': getattr(user, 'phone_number', ''),
                     'role': user.role,
-                    'school': user.school.name if user.school else None,
+                    'school': {
+                        'id': user.school.id,
+                        'name': user.school.name
+                    } if user.school else None,
                     'permissions': self._get_user_permissions(user),
                     'security_level': self._determine_security_level(user)
                 }

@@ -225,6 +225,18 @@ class StudentViewSet(StudentValidationMixin, viewsets.ModelViewSet):
             "message": f"Successfully promoted {promoted_count} students"
         })
 
+    @action(detail=True, methods=['get'])
+    def credentials(self, request, pk=None):
+        """Get student portal login credentials"""
+        student = self.get_object()
+        return Response({
+            'student_name': student.get_full_name(),
+            'student_id': student.student_id,
+            'username': student.username or f"std_{student.student_id}",
+            'password': student.password or 'Not available',
+            'class_name': student.current_class.full_name if student.current_class else 'No Class',
+        })
+
 
 class DailyAttendanceViewSet(viewsets.ModelViewSet):
     """Daily Attendance management"""

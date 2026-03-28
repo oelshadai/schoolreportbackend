@@ -174,6 +174,7 @@ SIMPLE_JWT = {
 
 # CORS Configuration
 if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
     CORS_ALLOWED_ORIGINS = [
         'http://localhost:8080',
         'http://localhost:8081',
@@ -182,19 +183,26 @@ if DEBUG:
         'http://192.168.8.92:8080',
         'http://192.168.8.92:8081',
     ]
-    # EMERGENCY FIX - Allow all origins for development
-    CORS_ALLOW_ALL_ORIGINS = True
 else:
+    CORS_ALLOW_ALL_ORIGINS = False
     CORS_ALLOWED_ORIGINS = [h.strip() for h in config(
         'CORS_ALLOWED_ORIGINS',
-        default='https://your-frontend.railway.app'
+        default='https://schoolreportfrontend.onrender.com'
     ).split(',')]
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
-
-# Additional CORS settings for better security
-CORS_ALLOW_ALL_ORIGINS = False if not DEBUG else True
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 # Allow iframe embedding only for specific report preview views (via @xframe_options_exempt)
 X_FRAME_OPTIONS = 'SAMEORIGIN'

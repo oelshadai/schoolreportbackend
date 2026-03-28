@@ -52,9 +52,10 @@ def student_login(request):
             'user': {
                 'id': student.user.id,
                 'email': student.user.email,
-                'first_name': student.user.first_name or '',
-                'last_name': student.user.last_name or '',
-                'role': 'STUDENT'
+                'first_name': student.user.first_name or student.first_name or '',
+                'last_name': student.user.last_name or student.last_name or '',
+                'role': 'STUDENT',
+                'school': {'id': student.school.id, 'name': student.school.name} if student.school else None
             }
         }, status=200)
 

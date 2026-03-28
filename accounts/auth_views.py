@@ -98,7 +98,7 @@ def teacher_login(request):
                 'last_name': user.last_name or '',
                 'role': user.role,
                 'phone_number': user.phone_number or '',
-                'school_id': user.school.id if user.school else None
+                'school': {'id': user.school.id, 'name': user.school.name} if user.school else None
             }
         }, status=200)
 
@@ -153,8 +153,7 @@ def admin_login(request):
                 'last_name': user.last_name or '',
                 'role': user.role,
                 'phone_number': user.phone_number or '',
-                'school_id': user.school.id if user.school else None,
-                'school_name': user.school.name if user.school else None
+                'school': {'id': user.school.id, 'name': user.school.name} if user.school else None
             }
         }, status=200)
 
