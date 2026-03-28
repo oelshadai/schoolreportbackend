@@ -57,7 +57,7 @@ class TeacherCreateSerializer(serializers.ModelSerializer):
     phone_number = serializers.CharField(max_length=15, required=False, allow_blank=True)
     password = serializers.CharField(write_only=True, min_length=6)
     class_id = serializers.IntegerField(required=False, allow_null=True)
-    school = serializers.PrimaryKeyRelatedField(queryset=School.objects.all())
+    school = serializers.PrimaryKeyRelatedField(queryset=School.objects.all(), required=False)
 
     specializations = serializers.PrimaryKeyRelatedField(
         queryset=Subject.objects.all(),
