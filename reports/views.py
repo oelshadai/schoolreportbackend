@@ -332,8 +332,18 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             total_marks_overall = total_marks_ca + total_marks_exam
             
             # Get media URL base for logo display
-            from .utils import get_media_base_url
+            from .utils import get_media_base_url, get_absolute_media_url
             media_url_base = get_media_base_url(request)
+            
+            # Handle school logo with Cloudinary support
+            school_logo_absolute = None
+            if student.school.logo:
+                school_logo_absolute = get_absolute_media_url(student.school.logo, request)
+            
+            # Handle student photo with Cloudinary support
+            student_photo_absolute = None
+            if student.photo:
+                student_photo_absolute = get_absolute_media_url(student.photo, request)
             
             context = {
                 'school': student.school,
@@ -351,6 +361,8 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 'total_marks_exam': total_marks_exam,
                 'total_marks_overall': total_marks_overall,
                 'media_url_base': media_url_base,
+                'school_logo_absolute': school_logo_absolute,
+                'student_photo_absolute': student_photo_absolute,
             }
             
             # Render HTML template

@@ -57,7 +57,7 @@ class TeacherCreateSerializer(serializers.ModelSerializer):
     phone_number = serializers.CharField(max_length=15, required=False, allow_blank=True)
     password = serializers.CharField(write_only=True, min_length=6)
     class_id = serializers.IntegerField(required=False, allow_null=True)
-    school = serializers.PrimaryKeyRelatedField(queryset=School.objects.all(), required=False)
+    school = serializers.PrimaryKeyRelatedField(queryset=School.objects.all(), required=False, write_only=True)
 
     specializations = serializers.PrimaryKeyRelatedField(
         queryset=Subject.objects.all(),
@@ -104,7 +104,9 @@ class TeacherCreateSerializer(serializers.ModelSerializer):
         class_id = validated_data.pop('class_id', None)
         password = validated_data.pop('password')
         specializations = validated_data.pop('specializations', [])
-        school = validated_data.pop('school')
+        # Get school from request context instead of validated_data
+        school = self.context.get('request').user.school
+        validated_data.pop('school', None)  # Remove school from validated_data if present
 
         user = User.objects.create_user(
             email=validated_data.pop('email'),
