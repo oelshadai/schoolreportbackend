@@ -603,6 +603,16 @@
                                     {% if school.show_position_in_class %}<td>-</td>{% endif %}
                                     <td>{% if term_result.average_score >= 80 %}Excellent{% elif term_result.average_score >= 70 %}Very Good{% elif term_result.average_score >= 60 %}Good{% elif term_result.average_score >= 50 %}Satisfactory{% else %}Needs Improvement{% endif %}</td>
                                 </tr>
+                                {% if school.show_class_average %}
+                                <tr style="background-color: #e8f4f8; font-weight: bold; border-top: 1px solid #000;">
+                                    <td class="subject-name">CLASS AVERAGE</td>
+                                    <td>{{ class_average_ca|default:"0" }}</td>
+                                    <td>{{ class_average_exam|default:"0" }}</td>
+                                    <td>{{ class_average_total|default:"0" }}</td>
+                                    {% if school.show_position_in_class %}<td>-</td>{% endif %}
+                                    <td>Class Avg</td>
+                                </tr>
+                                {% endif %}
                             </tbody>
                         </table>
                     </div>

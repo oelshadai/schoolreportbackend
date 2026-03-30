@@ -93,6 +93,37 @@ class ReportCardViewSet(viewsets.ModelViewSet):
         total_marks_exam = sum(sr.exam_score for sr in subject_results) if subject_results else 0
         total_marks_overall = total_marks_ca + total_marks_exam
         
+        # Calculate class averages if enabled
+        class_average_ca = 0
+        class_average_exam = 0
+        class_average_total = 0
+        
+        if student.school.show_class_average and student.current_class:
+            # Get all students in the same class and term
+            from scores.models import SubjectResult
+            class_students = Student.objects.filter(
+                current_class=student.current_class,
+                is_active=True
+            )
+            
+            if class_students.exists():
+                # Get all subject results for class students in this term
+                class_results = SubjectResult.objects.filter(
+                    student__in=class_students,
+                    term=term
+                )
+                
+                if class_results.exists():
+                    # Calculate averages
+                    total_ca = sum(sr.ca_score for sr in class_results)
+                    total_exam = sum(sr.exam_score for sr in class_results)
+                    total_overall = total_ca + total_exam
+                    result_count = class_results.count()
+                    
+                    class_average_ca = round(total_ca / result_count, 1) if result_count > 0 else 0
+                    class_average_exam = round(total_exam / result_count, 1) if result_count > 0 else 0
+                    class_average_total = round(total_overall / result_count, 1) if result_count > 0 else 0
+        
         # Get media URL base for logo display
         from .utils import get_media_base_url
         media_url_base = get_media_base_url(request)
@@ -112,6 +143,9 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             'total_marks_ca': total_marks_ca,
             'total_marks_exam': total_marks_exam,
             'total_marks_overall': total_marks_overall,
+            'class_average_ca': class_average_ca,
+            'class_average_exam': class_average_exam,
+            'class_average_total': class_average_total,
             'media_url_base': media_url_base,
         }
     
@@ -156,6 +190,9 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             'total_marks_ca': sum(r.ca_score for r in sample_data['subject_results']),
             'total_marks_exam': sum(r.exam_score for r in sample_data['subject_results']),
             'total_marks_overall': sum(r.total_score for r in sample_data['subject_results']),
+            'class_average_ca': 35.2,  # Sample class average
+            'class_average_exam': 38.8,  # Sample class average
+            'class_average_total': 74.0,  # Sample class average
         }
 
     @action(detail=False, methods=['post'])
