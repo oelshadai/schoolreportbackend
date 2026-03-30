@@ -57,7 +57,6 @@ class TeacherCreateSerializer(serializers.ModelSerializer):
     phone_number = serializers.CharField(max_length=15, required=False, allow_blank=True)
     password = serializers.CharField(write_only=True, min_length=6)
     class_id = serializers.IntegerField(required=False, allow_null=True)
-    school = serializers.PrimaryKeyRelatedField(queryset=School.objects.all(), required=False, write_only=True)
 
     specializations = serializers.PrimaryKeyRelatedField(
         queryset=Subject.objects.all(),
@@ -72,8 +71,12 @@ class TeacherCreateSerializer(serializers.ModelSerializer):
             'employee_id', 'first_name', 'last_name', 'email',
             'phone_number', 'password', 'hire_date', 'qualification',
             'experience_years', 'emergency_contact', 'address',
-            'specializations', 'class_id', 'school'
+            'specializations', 'class_id'
         ]
+        # Exclude school from validation - it's set automatically from request.user.school
+        extra_kwargs = {
+            'hire_date': {'required': True},
+        }
 
     def validate_email(self, value):
         if User.objects.filter(email=value).exists():
