@@ -115,11 +115,18 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
             if hasattr(assignment, 'max_attempts'):
                 assignment.max_attempts = data.get('max_attempts', getattr(assignment, 'max_attempts', 1))
             
-            # Save without calling full_clean to avoid validation errors on draft assignments
+            # Update question type flags
+            if 'has_mcq_questions' in data:
+                assignment.has_mcq_questions = data['has_mcq_questions']
+            if 'has_short_answer_questions' in data:
+                assignment.has_short_answer_questions = data['has_short_answer_questions']
+            
+            # Save without calling full_clean to avoid validation errors on existing assignments
             assignment.save(update_fields=[
                 'title', 'description', 'instructions', 'due_date', 
-                'max_score', 'time_limit', 'max_attempts', 'updated_at'
-            ])
+                'max_score', 'time_limit', 'max_attempts', 'has_mcq_questions', 
+                'has_short_answer_questions', 'updated_at'
+            ], skip_validation=True)
             
             return Response({
                 'message': 'Assignment updated successfully',
@@ -445,6 +452,14 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
             if not current_term:
                 return Response({'error': 'No active academic term found. Please contact admin to set current term.'}, status=400)
             
+            # determine quiz/exam question type settings
+            has_mcq = data.get('has_mcq_questions', False)
+            has_short = data.get('has_short_answer_questions', False)
+
+            if data['assignment_type'] in ['QUIZ', 'EXAM']:
+                if not has_mcq and not has_short:
+                    return Response({'error': 'Quiz/Exam must contain at least one question type (MCQ or Short Answer)'}, status=400)
+
             # Create draft assignment with all required fields
             assignment = Assignment.objects.create(
                 title=data['title'],
@@ -462,6 +477,8 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
                 auto_grade=data.get('auto_grade', False),
                 allow_file_submission=data.get('allow_file_submission', True),
                 allow_text_submission=data.get('allow_text_submission', True),
+                has_mcq_questions=has_mcq,
+                has_short_answer_questions=has_short,
                 status='DRAFT'
             )
             
@@ -495,7 +512,15 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
             assignment.time_limit = data.get('time_limit')
             assignment.auto_grade = data.get('auto_grade', True)
             assignment.show_results_immediately = data.get('show_results_immediately', True)
-        
+
+            if 'has_mcq_questions' in data:
+                assignment.has_mcq_questions = data.get('has_mcq_questions', False)
+            if 'has_short_answer_questions' in data:
+                assignment.has_short_answer_questions = data.get('has_short_answer_questions', False)
+
+            if not assignment.has_mcq_questions and not assignment.has_short_answer_questions:
+                return Response({'error': 'Quiz/Exam must have at least one question type (MCQ or Short Answer)'}, status=400)
+
         assignment.save()
         
         return Response({
@@ -570,18 +595,46 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
         if not data.get('question_text'):
             return Response({'error': 'question_text is required'}, status=400)
         
+        question_type = data.get('question_type', 'mcq')
+        
+        # VALIDATION: Ensure question type matches assignment configuration
+        if assignment.assignment_type in ['QUIZ', 'EXAM']:
+            # Backfill missing or legacy configuration by inferring existing question types
+            if not assignment.has_mcq_questions and not assignment.has_short_answer_questions:
+                inferred_mcq = assignment.questions.filter(question_type='mcq').exists()
+                inferred_short = assignment.questions.filter(question_type='short_answer').exists()
+
+                if inferred_mcq or inferred_short:
+                    assignment.has_mcq_questions = inferred_mcq
+                    assignment.has_short_answer_questions = inferred_short
+                else:
+                    # No configuration yet, set based on first question added
+                    assignment.has_mcq_questions = (question_type == 'mcq')
+                    assignment.has_short_answer_questions = (question_type == 'short_answer')
+
+                assignment.save(update_fields=['has_mcq_questions', 'has_short_answer_questions'])
+
+            if question_type == 'mcq' and not assignment.has_mcq_questions:
+                return Response({
+                    'error': f'Cannot add MCQ question. This {assignment.assignment_type.lower()} is configured for short answer questions only.'
+                }, status=400)
+            elif question_type == 'short_answer' and not assignment.has_short_answer_questions:
+                return Response({
+                    'error': f'Cannot add short answer question. This {assignment.assignment_type.lower()} is configured for MCQ questions only.'
+                }, status=400)
+        
         try:
             with transaction.atomic():
                 question = Question.objects.create(
                     assignment=assignment,
                     question_text=data['question_text'],
-                    question_type=data.get('question_type', 'mcq'),
+                    question_type=question_type,
                     points=data.get('points', 1),
                     order=assignment.questions.count() + 1
                 )
                 
                 # Create MCQ options
-                if data.get('question_type', 'mcq') == 'mcq':
+                if question_type == 'mcq':
                     options = data.get('options', [])
                     if not options:
                         return Response({'error': 'MCQ questions must have options'}, status=400)
@@ -906,20 +959,89 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
         except StudentAssignment.DoesNotExist:
             return Response({'error': 'Submission not found'}, status=404)
     
-    def _send_reopen_notification(self, student, assignment):
-        """Send notification when assignment is reopened"""
-        try:
-            from notifications.models import Notification
-            
-            Notification.objects.create(
-                user=student.user,
-                title=f'Assignment Reopened: {assignment.title}',
-                message=f'Your teacher has reopened the assignment "{assignment.title}". You can now submit your work.',
-                type='assignment_reopened',
-                assignment_id=assignment.id
+    @action(detail=True, methods=['post'], url_path='toggle-review')
+    def toggle_review(self, request, pk=None):
+        """Toggle review access for an assignment"""
+        assignment = get_object_or_404(
+            Assignment, 
+            id=pk, 
+            created_by=request.user
+        )
+        
+        action = request.data.get('action')  # 'enable' or 'disable'
+        review_setting = request.data.get('review_setting', 'GRADED')  # When to allow review
+        
+        if action == 'enable':
+            assignment.allow_review = True
+            assignment.review_available_after = review_setting
+            if review_setting == 'MANUAL':
+                assignment.review_enabled_at = timezone.now()
+            message = 'Review access enabled for students'
+        elif action == 'disable':
+            assignment.allow_review = False
+            assignment.review_enabled_at = None
+            message = 'Review access disabled for students'
+        else:
+            return Response({'error': 'Invalid action. Use "enable" or "disable"'}, status=400)
+        
+        assignment.save()
+        
+        return Response({
+            'message': message,
+            'allow_review': assignment.allow_review,
+            'review_available_after': assignment.review_available_after,
+            'review_enabled_at': assignment.review_enabled_at
+        })
+    
+    @action(detail=True, methods=['get'], url_path='review-settings')
+    def get_review_settings(self, request, pk=None):
+        """Get current review settings for an assignment"""
+        assignment = get_object_or_404(
+            Assignment, 
+            id=pk, 
+            created_by=request.user
+        )
+        
+        # Count students who can currently review
+        students_can_review = 0
+        if assignment.allow_review:
+            student_assignments = StudentAssignment.objects.filter(
+                assignment=assignment,
+                status__in=['SUBMITTED', 'GRADED']
             )
-        except Exception as e:
-            print(f'Failed to send notification: {e}')
+            
+            for sa in student_assignments:
+                if self._can_student_review(assignment, sa):
+                    students_can_review += 1
+        
+        return Response({
+            'assignment_id': assignment.id,
+            'assignment_title': assignment.title,
+            'allow_review': assignment.allow_review,
+            'review_available_after': assignment.review_available_after,
+            'review_enabled_at': assignment.review_enabled_at,
+            'total_submissions': StudentAssignment.objects.filter(
+                assignment=assignment,
+                status__in=['SUBMITTED', 'GRADED']
+            ).count(),
+            'students_can_review': students_can_review
+        })
+    
+    def _can_student_review(self, assignment, student_assignment):
+        """Check if a student can review their assignment"""
+        if not assignment.allow_review:
+            return False
+        
+        if assignment.review_available_after == 'NEVER':
+            return False
+        elif assignment.review_available_after == 'IMMEDIATE':
+            return student_assignment.status in ['SUBMITTED', 'GRADED']
+        elif assignment.review_available_after == 'GRADED':
+            return student_assignment.status == 'GRADED'
+        elif assignment.review_available_after == 'MANUAL':
+            return assignment.review_enabled_at is not None and student_assignment.status in ['SUBMITTED', 'GRADED']
+        
+        return False
     
     @action(detail=True, methods=['patch'], url_path='grade-submission')
     def grade_submission(self, request, pk=None):
@@ -1295,24 +1417,52 @@ class StudentAssignmentViewSet(viewsets.ViewSet):
                     total_points += question.points
                     earned_points += quiz_answer.points_earned
                 
-                # Calculate score
+                # Calculate score and determine grading status
                 final_score = (earned_points / total_points) * assignment.max_score if total_points > 0 else 0
                 
                 attempt.score = final_score
-                attempt.status = 'SUBMITTED'
                 attempt.submitted_at = timezone.now()
-                attempt.save()
                 
-                student_assignment.score = final_score
-                student_assignment.status = 'GRADED'
+                # Determine if assignment should be auto-graded or wait for teacher
+                grading_type = assignment.get_quiz_grading_type()
+                
+                if grading_type == 'MCQ_ONLY':
+                    # MCQ only - auto-grade and mark as GRADED
+                    attempt.status = 'GRADED'
+                    student_assignment.score = final_score
+                    student_assignment.status = 'GRADED'
+                    student_assignment.graded_at = timezone.now()
+                elif grading_type in ['SHORT_ANSWER_ONLY', 'HYBRID']:
+                    # Contains short answers - keep as SUBMITTED for teacher grading
+                    attempt.status = 'SUBMITTED'
+                    student_assignment.score = None  # No score until teacher grades
+                    student_assignment.status = 'SUBMITTED'
+                else:
+                    # Fallback - treat as submitted
+                    attempt.status = 'SUBMITTED'
+                    student_assignment.score = None
+                    student_assignment.status = 'SUBMITTED'
+                
+                attempt.save()
                 student_assignment.submitted_at = timezone.now()
                 student_assignment.save()
                 
-                return Response({
-                    'message': 'Assignment submitted successfully',
-                    'score': final_score,
-                    'status': 'GRADED'
-                })
+                # Return appropriate response based on grading type
+                if grading_type == 'MCQ_ONLY':
+                    return Response({
+                        'message': 'Assignment submitted and graded successfully',
+                        'score': final_score,
+                        'status': 'GRADED',
+                        'show_results': True
+                    })
+                else:
+                    return Response({
+                        'message': 'Assignment submitted successfully. Your teacher will grade it soon.',
+                        'score': None,
+                        'status': 'SUBMITTED',
+                        'show_results': False,
+                        'pending_grading': True
+                    })
             
             else:
                 # Handle regular assignment

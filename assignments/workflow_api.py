@@ -135,11 +135,24 @@ class AcademicWorkflowViewSet(viewsets.ViewSet):
         
         elif assignment_type == 'QUIZ':
             # Quiz: Timed, auto-grade, multiple attempts possible
+            # HYBRID GRADING: Support for question type selection
+            has_mcq = data.get('has_mcq_questions', False)
+            has_short_answer = data.get('has_short_answer_questions', False)
+            
+            # Validation: Must have at least one question type
+            if not has_mcq and not has_short_answer:
+                return Response({
+                    'error': 'Quiz must contain at least one question type (MCQ or Short Answer)'
+                }, status=400)
+            
+            assignment.has_mcq_questions = has_mcq
+            assignment.has_short_answer_questions = has_short_answer
             assignment.time_limit = data.get('time_limit', 30)  # Default 30 min
             assignment.max_attempts = data.get('max_attempts', 3)  # Default 3 attempts
             assignment.is_timed = True
             assignment.auto_grade = True
-            assignment.show_results_immediately = data.get('show_results_immediately', True)
+            # HYBRID: Show results based on question composition
+            assignment.show_results_immediately = assignment.should_show_results_immediately()
             assignment.allow_file_submission = False  # No files in quiz
             assignment.allow_text_submission = False  # Only MCQ/short answer
         

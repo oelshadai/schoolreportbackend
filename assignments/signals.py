@@ -71,8 +71,8 @@ def enforce_student_assignment_rules(sender, instance, **kwargs):
 
 @receiver(post_save, sender=QuizAttempt)
 def auto_grade_quiz(sender, instance, created, **kwargs):
-    """Auto-grade quiz attempts"""
-    if created and instance.assignment.auto_grade:
+    """Auto-grade quiz attempts - only for MCQ-only quizzes"""
+    if created and instance.assignment.should_show_results_immediately():
         instance.calculate_score()
         
         # Update student assignment
@@ -81,4 +81,5 @@ def auto_grade_quiz(sender, instance, created, **kwargs):
             student=instance.student
         )
         student_assignment.score = instance.score
+        student_assignment.status = 'GRADED'  # Mark as graded
         student_assignment.save()

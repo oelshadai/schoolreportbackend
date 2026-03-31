@@ -222,20 +222,32 @@ class AcademicSubmissionViewSet(viewsets.ViewSet):
                     quiz_answer.check_answer()
                     quiz_answer.save()
                 
-                # Calculate score and submit
-                quiz_attempt.calculate_score()
-                student_assignment.score = quiz_attempt.score
+                # Calculate score and submit - only for auto-gradable quizzes
+                if assignment.should_show_results_immediately():
+                    quiz_attempt.calculate_score()
+                    student_assignment.score = quiz_attempt.score
+                    student_assignment.status = 'GRADED'  # Auto-graded
+                else:
+                    # Hybrid or short-answer only: wait for manual grading
+                    student_assignment.status = 'SUBMITTED'
+                
                 student_assignment.submit({'answers': answers})
                 
         except Exception as e:
             return Response({'error': str(e)}, status=400)
         
-        return Response({
+        response_data = {
             'message': 'Quiz submitted successfully',
-            'score': float(student_assignment.score) if student_assignment.score else 0,
             'submitted_at': student_assignment.submitted_at,
-            'attempt_number': student_assignment.attempts_count
-        })
+            'attempt_number': student_assignment.attempts_count,
+            'status': student_assignment.status
+        }
+        
+        # Only include score for auto-graded quizzes
+        if assignment.should_show_results_immediately():
+            response_data['score'] = float(student_assignment.score) if student_assignment.score else 0
+        
+        return Response(response_data)
     
     @action(detail=True, methods=['get'], url_path='status')
     def get_status(self, request, pk=None):

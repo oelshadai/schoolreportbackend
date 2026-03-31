@@ -104,13 +104,28 @@ class SubmissionValidationAPI(viewsets.ViewSet):
                 
                 logger.info(f"Student {student.id} submitted assignment {assignment.id}, attempt {student_assignment.attempts_count}")
                 
-                return Response({
+                # Determine if results should be shown immediately
+                show_results = assignment.should_show_results_immediately()
+                grading_type = assignment.get_quiz_grading_type()
+                
+                response_data = {
                     'message': 'Assignment submitted successfully',
                     'submitted_at': student_assignment.submitted_at,
                     'attempt_number': student_assignment.attempts_count,
                     'status': student_assignment.status,
-                    'can_retry': student_assignment.attempts_count < assignment.max_attempts
-                })
+                    'can_retry': student_assignment.attempts_count < assignment.max_attempts,
+                    'show_results_immediately': show_results,
+                    'grading_type': grading_type,  # 'MCQ_ONLY', 'SHORT_ANSWER_ONLY', 'HYBRID'
+                }
+                
+                # Add score if graded immediately
+                if show_results and student_assignment.status == 'GRADED':
+                    response_data['score'] = float(student_assignment.score) if student_assignment.score else 0
+                    max_score = assignment.max_score
+                    response_data['max_score'] = max_score
+                    response_data['percentage'] = (response_data['score'] / max_score * 100) if max_score > 0 else 0
+                
+                return Response(response_data)
                 
         except ValidationError as e:
             logger.warning(f"Submission failed for student {student.id}, assignment {assignment.id}: {str(e)}")

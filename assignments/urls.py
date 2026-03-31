@@ -2,6 +2,8 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .api_views import TeacherAssignmentViewSet, StudentAssignmentViewSet
 from .workflow_api import AcademicWorkflowViewSet
+from .grading_views import GradingViewSet
+from .review_views import AssignmentReviewViewSet
 from . import views
 
 app_name = 'assignments'
@@ -11,6 +13,8 @@ router = DefaultRouter()
 router.register(r'teacher', TeacherAssignmentViewSet, basename='teacher-assignments')
 router.register(r'student', StudentAssignmentViewSet, basename='student-assignments')
 router.register(r'workflow', AcademicWorkflowViewSet, basename='assignment-workflow')
+router.register(r'grading', GradingViewSet, basename='assignment-grading')
+router.register(r'review', AssignmentReviewViewSet, basename='assignment-review')
 
 # COMPATIBILITY FIX: Add assignments router for frontend compatibility
 router.register(r'assignments', TeacherAssignmentViewSet, basename='assignments')

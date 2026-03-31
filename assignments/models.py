@@ -80,6 +80,29 @@ class Assignment(models.Model):
     auto_grade = models.BooleanField(default=False)
     show_results_immediately = models.BooleanField(default=True)
     
+    # Quiz question types - determines grading behavior
+    has_mcq_questions = models.BooleanField(default=False, help_text="Quiz contains multiple choice questions")
+    has_short_answer_questions = models.BooleanField(default=False, help_text="Quiz contains short answer questions")
+    # Auto-computed from has_mcq and has_short_answer:
+    # - MCQ only: Auto-grade, show immediately
+    # - Short Answer only: Wait for teacher, don't show until graded
+    # - Both: Auto-grade MCQ, wait for teacher on short answers
+    
+    # Review settings
+    allow_review = models.BooleanField(default=True, help_text="Allow students to review their submissions")
+    review_available_after = models.CharField(
+        max_length=20,
+        choices=[
+            ('IMMEDIATE', 'Immediately after submission'),
+            ('GRADED', 'After teacher grades'),
+            ('MANUAL', 'Manual teacher control'),
+            ('NEVER', 'Never allow review')
+        ],
+        default='GRADED',
+        help_text="When students can review their submissions"
+    )
+    review_enabled_at = models.DateTimeField(null=True, blank=True, help_text="When review was manually enabled")
+    
     # Status
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT')
     
@@ -110,6 +133,41 @@ class Assignment(models.Model):
         ordering = ['-created_at']
         # TRANSITIONAL: No database constraints during migration
         # Will be added in Phase 3 after data migration
+    
+    def get_quiz_grading_type(self):
+        """
+        Determine how quiz should be graded based on question composition.
+        
+        Returns:
+            'MCQ_ONLY': Only multiple choice - Auto-grade, show immediately
+            'SHORT_ANSWER_ONLY': Only short answers - Wait for teacher
+            'HYBRID': Both types - Auto-grade MCQ, wait for short answers
+            None: Not a quiz
+        """
+        if self.assignment_type not in ['QUIZ', 'EXAM']:
+            return None
+        
+        if self.has_mcq_questions and self.has_short_answer_questions:
+            return 'HYBRID'
+        elif self.has_mcq_questions:
+            return 'MCQ_ONLY'
+        elif self.has_short_answer_questions:
+            return 'SHORT_ANSWER_ONLY'
+        return None
+    
+    def should_show_results_immediately(self):
+        """Determine if student should see results right after submission"""
+        if self.assignment_type not in ['QUIZ', 'EXAM']:
+            return False
+        
+        grading_type = self.get_quiz_grading_type()
+        
+        # Only MCQ-only quizzes show results immediately (auto-graded)
+        if grading_type == 'MCQ_ONLY':
+            return True
+        
+        # Short answer only or hybrid: wait for teacher
+        return False
     
     def clean(self):
         """PRODUCTION-SAFE: Academic validation with workflow awareness"""
@@ -253,7 +311,7 @@ class StudentAssignment(models.Model):
         return False
     
     def submit(self, submission_data=None):
-        """Submit assignment with academic validation"""
+        """Submit assignment with academic validation and hybrid quiz grading"""
         from django.core.exceptions import ValidationError
         
         # Check if expired
@@ -272,7 +330,57 @@ class StudentAssignment(models.Model):
         self.status = 'SUBMITTED'
         self.submitted_at = timezone.now()
         self.is_locked = False
+        
+        # HYBRID GRADING: For quizzes with only MCQ, auto-grade and mark as GRADED
+        # For quizzes with short answers, keep as SUBMITTED for teacher grading
+        if self.assignment.assignment_type in ['QUIZ', 'EXAM'] and self.status == 'SUBMITTED':
+            grading_type = self.assignment.get_quiz_grading_type()
+            
+            # If MCQ-only, auto-grade and show results immediately
+            if grading_type == 'MCQ_ONLY':
+                self._auto_grade_quiz(submission_data.get('answers', []))
+                self.status = 'GRADED'
+                self.graded_at = timezone.now()
+            # For SHORT_ANSWER_ONLY or HYBRID, keep as SUBMITTED for teacher grading
+            elif grading_type in ['SHORT_ANSWER_ONLY', 'HYBRID']:
+                # Keep status as SUBMITTED - teacher needs to grade
+                pass
+        
         self.save()
+        return self
+    
+    def _auto_grade_quiz(self, answers):
+        """Auto-grade quiz questions (MCQ only)"""
+        from assignments.models import Question, QuestionOption, QuizAnswer
+        
+        total_points = 0
+        earned_points = 0
+        
+        for answer_data in answers:
+            try:
+                question = Question.objects.get(id=answer_data.get('question_id'))
+                
+                # Only grade MCQ questions  
+                if question.question_type == 'mcq':
+                    # Check if answer is correct
+                    if answer_data.get('selected_option_id'):
+                        selected_option = QuestionOption.objects.get(id=answer_data['selected_option_id'])
+                        total_points += question.points
+                        
+                        if selected_option.is_correct:
+                            earned_points += question.points
+                else:
+                    # Short answer questions need manual grading - add points to total
+                    total_points += question.points
+                    
+            except (Question.DoesNotExist, QuestionOption.DoesNotExist):
+                continue
+        
+        # Calculate score
+        if total_points > 0:
+            score_percentage = (earned_points / total_points) * 100
+            self.score = (score_percentage / 100) * self.assignment.max_score
+        return self
 
 
 class AssignmentAttempt(models.Model):
@@ -607,14 +715,16 @@ class QuizAttempt(models.Model):
         return (timezone.now() - self.started_at).total_seconds() > time_limit_seconds
     
     def calculate_score(self):
-        """Calculate score based on answers"""
+        """Calculate score based on graded answers only"""
         total_points = 0
         earned_points = 0
         
         for answer in self.answers.all():
-            total_points += answer.question.points
-            if answer.is_correct:
-                earned_points += answer.question.points
+            # Only count answers that have been graded (MCQ auto-graded, manual for others)
+            if answer.is_correct is not None:
+                total_points += answer.question.points
+                if answer.is_correct:
+                    earned_points += answer.question.points
         
         if total_points > 0:
             self.score = (earned_points / total_points) * self.assignment.max_score
@@ -673,16 +783,13 @@ class QuizAnswer(models.Model):
                 self.is_correct = False
                 self.points_earned = 0
         elif self.question.question_type == 'short_answer':
-            if self.question.check_short_answer(self.answer_text):
-                self.is_correct = True
-                self.points_earned = self.question.points
-            else:
-                self.is_correct = False
-                self.points_earned = 0
+            # Short answer questions require manual grading - don't auto-grade
+            self.is_correct = None  # Pending manual review
+            self.points_earned = 0  # No points until manually graded
         elif self.question.question_type == 'project':
             # Project questions require manual grading
             self.is_correct = None  # Pending manual review
-            self.points_earned = 0
+            self.points_earned = 0  # No points until manually graded
         
         self.save()
 
