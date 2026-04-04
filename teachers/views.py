@@ -244,6 +244,122 @@ class TeacherViewSet(viewsets.ModelViewSet):
             import traceback
             traceback.print_exc()
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['get'])
+    def score_entry_config(self, request):
+        """Get score entry configuration and available classes/subjects based on school settings"""
+        try:
+            user = request.user
+            
+            if not user.school:
+                return Response({'error': 'No school associated'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            school = user.school
+            score_entry_mode = school.score_entry_mode  # 'CLASS_TEACHER' or 'SUBJECT_TEACHER'
+            
+            response_data = {
+                'score_entry_mode': score_entry_mode,
+                'classes': [],
+                'subjects': []
+            }
+            
+            if score_entry_mode == 'CLASS_TEACHER':
+                # Teacher can enter scores for ALL subjects in classes they are class teacher for
+                class_assignments = Class.objects.filter(
+                    school=school,
+                    class_teacher=user
+                ).select_related('school')
+                
+                for cls in class_assignments:
+                    # Get all subjects for this class
+                    class_subjects = ClassSubject.objects.filter(
+                        class_instance=cls
+                    ).select_related('subject')
+                    
+                    subjects_list = [{
+                        'id': cs.subject.id,
+                        'name': cs.subject.name,
+                        'class_subject_id': cs.id
+                    } for cs in class_subjects]
+                    
+                    response_data['classes'].append({
+                        'id': cls.id,
+                        'name': str(cls),
+                        'level': cls.level,
+                        'section': cls.section or '',
+                        'subjects': subjects_list,
+                        'is_class_teacher': True
+                    })
+            
+            else:  # SUBJECT_TEACHER mode
+                # First, get classes where teacher is class teacher (they can enter ALL subjects)
+                class_teacher_classes = Class.objects.filter(
+                    school=school,
+                    class_teacher=user
+                ).select_related('school')
+                
+                classes_dict = {}
+                
+                # Add class teacher classes with ALL subjects
+                for cls in class_teacher_classes:
+                    class_subjects = ClassSubject.objects.filter(
+                        class_instance=cls
+                    ).select_related('subject')
+                    
+                    subjects_list = [{
+                        'id': cs.subject.id,
+                        'name': cs.subject.name,
+                        'class_subject_id': cs.id
+                    } for cs in class_subjects]
+                    
+                    classes_dict[cls.id] = {
+                        'id': cls.id,
+                        'name': str(cls),
+                        'level': cls.level,
+                        'section': cls.section or '',
+                        'subjects': subjects_list,
+                        'is_class_teacher': True
+                    }
+                
+                # Then add subject-specific assignments (only if not already added as class teacher)
+                subject_assignments = ClassSubject.objects.filter(
+                    teacher=user,
+                    class_instance__school=school
+                ).select_related('class_instance', 'subject')
+                
+                for assignment in subject_assignments:
+                    class_id = assignment.class_instance.id
+                    
+                    # If already added as class teacher, skip (they already have all subjects)
+                    if class_id in classes_dict:
+                        continue
+                    
+                    # Otherwise, add only the subjects they teach
+                    if class_id not in classes_dict:
+                        classes_dict[class_id] = {
+                            'id': class_id,
+                            'name': str(assignment.class_instance),
+                            'level': assignment.class_instance.level,
+                            'section': assignment.class_instance.section or '',
+                            'subjects': [],
+                            'is_class_teacher': False
+                        }
+                    
+                    classes_dict[class_id]['subjects'].append({
+                        'id': assignment.subject.id,
+                        'name': assignment.subject.name,
+                        'class_subject_id': assignment.id
+                    })
+                
+                response_data['classes'] = list(classes_dict.values())
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            logger.error(f"ERROR in score_entry_config endpoint: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
     @action(detail=False, methods=['get', 'patch'])
     def profile(self, request):

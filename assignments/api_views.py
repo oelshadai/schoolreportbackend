@@ -58,6 +58,7 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
                 'status': assignment.status,
                 'max_score': assignment.max_score,
                 'class_name': str(assignment.class_instance) if assignment.class_instance else 'No Class',
+                'class_id': assignment.class_instance.id if assignment.class_instance else None,
                 'created_at': assignment.created_at,
                 'updated_at': assignment.updated_at
             })
@@ -739,6 +740,34 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
                     'students_assigned': assigned_count
                 })
             
+            elif assignment.status == 'CLOSED':
+                # Reactivate closed assignment
+                with transaction.atomic():
+                    assignment.status = 'PUBLISHED'
+                    assignment.save(skip_validation=True)
+
+                    students = assignment.class_instance.students.all()
+                    assigned_count = 0
+                    for student in students:
+                        try:
+                            student_assignment, created = StudentAssignment.objects.get_or_create(
+                                assignment=assignment,
+                                student=student,
+                                defaults={'status': 'NOT_STARTED'}
+                            )
+                            if created:
+                                assigned_count += 1
+                        except Exception as e:
+                            print(f"Error assigning to student {student.id}: {e}")
+                            continue
+
+                    return Response({
+                        'id': assignment.id,
+                        'message': 'Assignment republished successfully',
+                        'status': assignment.status,
+                        'students_assigned': assigned_count
+                    })
+
             else:
                 return Response({
                     'error': f'Cannot publish assignment with status: {assignment.status}'
@@ -1079,6 +1108,72 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
         # Return serialized submission
         serializer = StudentAssignmentSerializer(submission)
         return Response(serializer.data)
+
+    def _send_reopen_notification(self, student, assignment):
+        """Send a notification to a student when their assignment is reopened (best-effort)"""
+        try:
+            from notifications.models import Notification
+            Notification.objects.create(
+                user=student.user,
+                type='assignment',
+                title=f'Assignment Reopened: {assignment.title}',
+                message=f'Your teacher has reopened the assignment "{assignment.title}". You can now submit again.',
+                assignment_id=assignment.id,
+            )
+        except Exception:
+            pass  # Notifications are optional; do not block the main flow
+
+    @action(detail=True, methods=['post'], url_path='auto-submit-overdue')
+    def auto_submit_overdue(self, request, pk=None):
+        """Auto-submit all overdue/unsubmitted students for a specific assignment"""
+        assignment = get_object_or_404(
+            Assignment,
+            id=pk,
+            created_by=request.user
+        )
+
+        now = timezone.now()
+
+        if assignment.due_date and assignment.due_date > now:
+            return Response(
+                {'error': 'Assignment deadline has not passed yet'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        unsubmitted = StudentAssignment.objects.filter(
+            assignment=assignment,
+            status__in=['NOT_STARTED', 'IN_PROGRESS']
+        ).select_related('student')
+
+        auto_submitted_count = 0
+        errors = []
+
+        for sa in unsubmitted:
+            try:
+                with transaction.atomic():
+                    if assignment.assignment_type in ['QUIZ', 'EXAM']:
+                        # Auto-grade with zero for quiz/exam
+                        sa.status = 'GRADED'
+                        sa.score = 0
+                        sa.submitted_at = now
+                        sa.graded_at = now
+                        sa.submission_text = 'Auto-submitted: deadline expired, no submission received.'
+                        sa.teacher_feedback = 'Auto-submitted after deadline. Score: 0.'
+                    else:
+                        # Mark as submitted (needs manual grading)
+                        sa.status = 'SUBMITTED'
+                        sa.submitted_at = now
+                        sa.submission_text = 'Auto-submitted: deadline expired, no submission received.'
+                    sa.save()
+                    auto_submitted_count += 1
+            except Exception as e:
+                errors.append(f'Error for student {sa.student.get_full_name()}: {str(e)}')
+
+        return Response({
+            'message': f'Auto-submitted {auto_submitted_count} overdue student(s)',
+            'auto_submitted_count': auto_submitted_count,
+            'errors': errors
+        })
 
 
 class StudentAssignmentViewSet(viewsets.ViewSet):

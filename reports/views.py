@@ -156,17 +156,13 @@ class ReportCardViewSet(viewsets.ModelViewSet):
         if hasattr(sample_data['student'], 'current_class') and sample_data['student'].current_class and hasattr(sample_data['student'].current_class, 'class_teacher') and sample_data['student'].current_class.class_teacher:
             class_teacher_name = sample_data['student'].current_class.class_teacher.get_full_name()
         
-        # Use actual school term dates if available
+        # Use school's actual reopening date if set, else fall back to term end date
         reopening_date = None
-        if hasattr(sample_data['term'], 'end_date') and sample_data['term'].end_date:
+        if getattr(school, 'term_reopening_date', None):
+            reopening_date = school.term_reopening_date
+        elif hasattr(sample_data['term'], 'end_date') and sample_data['term'].end_date:
             from datetime import timedelta
             reopening_date = sample_data['term'].end_date + timedelta(weeks=2)
-        elif getattr(school, 'term_reopening_date', None):
-            from datetime import datetime
-            reopening_date = datetime.strptime(school.term_reopening_date, '%Y-%m-%d').date()
-        else:
-            from datetime import datetime, timedelta
-            reopening_date = datetime.now().date() + timedelta(weeks=2)
         
         # Get media URL base for logo display
         from .utils import get_media_base_url
@@ -182,17 +178,17 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             'attendance': sample_data['attendance'],
             'behaviour': sample_data['behaviour'],
             'class_teacher_name': class_teacher_name,
-            'reopening_date': reopening_date,
-            'position': f"{sample_data['term_result'].position}/{25}",  # Use sample class size
+            'reopening_date': school.term_reopening_date if school.term_reopening_date else reopening_date,
+            'position': f"{sample_data['term_result'].class_position}/{sample_data['term_result'].total_students}",
             'empty_rows': range(max(0, 9 - len(sample_data['subject_results']))),
             'is_preview': True,
             'media_url_base': media_url_base,
             'total_marks_ca': sum(r.ca_score for r in sample_data['subject_results']),
             'total_marks_exam': sum(r.exam_score for r in sample_data['subject_results']),
             'total_marks_overall': sum(r.total_score for r in sample_data['subject_results']),
-            'class_average_ca': 35.2,  # Sample class average
-            'class_average_exam': 38.8,  # Sample class average
-            'class_average_total': 74.0,  # Sample class average
+            'class_average_ca': 0,
+            'class_average_exam': 0,
+            'class_average_total': 0,
         }
 
     @action(detail=False, methods=['post'])
@@ -1290,8 +1286,8 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 'attendance': sample_data['attendance'],
                 'behaviour': sample_data['behaviour'],
                 'class_teacher_name': class_teacher_name,
-                'reopening_date': reopening_date,
-                'position': f"{sample_data['term_result'].position}/{25}",  # Use sample class size
+                'reopening_date': school.term_reopening_date if school.term_reopening_date else reopening_date,
+                'position': f"{sample_data['term_result'].class_position}/{sample_data['term_result'].total_students}",
                 'empty_rows': range(max(0, 9 - len(sample_data['subject_results']))),
                 'is_preview': True,
                 'media_url_base': media_url_base,
@@ -1566,7 +1562,7 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             # Created sample subject results
             
             # Sample term result
-            SampleTermResult = namedtuple('SampleTermResult', ['total_score', 'average', 'position', 'grade', 'status'])
+            SampleTermResult = namedtuple('SampleTermResult', ['total_score', 'average_score', 'class_position', 'total_students', 'grade', 'promoted', 'teacher_remarks'])
             total_scores = sum(result.total_score for result in sample_results)
             average = total_scores / len(sample_results) if sample_results else 0
             
@@ -1575,34 +1571,34 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             
             sample_term_result = SampleTermResult(
                 total_score=total_scores,
-                average=round(average, 2),
-                position=5,
+                average_score=round(average, 2),
+                class_position=5,
+                total_students=25,
                 grade='B' if average >= grade_scale_b_min else 'C',
-                status='PROMOTED' if average >= grade_scale_d_min else 'REPEAT'
+                promoted=average >= grade_scale_d_min,
+                teacher_remarks='Student shows excellent potential and good behavior in class.'
             )
             
             # Sample term result created
             
-            # Sample attendance - use actual school settings
-            SampleAttendance = namedtuple('SampleAttendance', ['days_present', 'days_absent', 'total_days'])
+            # Use real attendance from actual student if available, else None
             sample_attendance = None
-            if getattr(school, 'show_attendance', True):
-                sample_attendance = SampleAttendance(
-                    days_present=85,
-                    days_absent=5,
-                    total_days=90
-                )
+            if actual_student and getattr(school, 'show_attendance', True):
+                from students.models import Attendance as AttendanceModel
+                # Try to get attendance for current term
+                if current_term:
+                    sample_attendance = AttendanceModel.objects.filter(
+                        student=actual_student, term=current_term
+                    ).first()
             
-            # Sample behaviour - use actual school settings
-            SampleBehaviour = namedtuple('SampleBehaviour', ['conduct', 'attitude', 'interest', 'class_teacher_remarks'])
+            # Use real behaviour from actual student if available, else None
             sample_behaviour = None
-            if getattr(school, 'show_behavior_comments', True):
-                sample_behaviour = SampleBehaviour(
-                    conduct='Good',
-                    attitude='Excellent', 
-                    interest='Very Good',
-                    class_teacher_remarks='Student shows excellent potential and good behavior in class.'
-                )
+            if actual_student and getattr(school, 'show_behavior_comments', True):
+                from students.models import Behaviour as BehaviourModel
+                if current_term:
+                    sample_behaviour = BehaviourModel.objects.filter(
+                        student=actual_student, term=current_term
+                    ).first()
             
             # Sample data creation completed successfully
             
@@ -1719,6 +1715,9 @@ def template_preview_public(request):
                 '<div style="padding:20px; text-align:center;">User must be associated with a school to preview reports.</div>',
                 status=400
             )
+        # Always refresh school from DB so latest saved settings are reflected
+        from schools.models import School as SchoolModel
+        school = SchoolModel.objects.get(id=school.id)
 
         # Check if this is a student-specific preview with current scores
         student_id = request.GET.get('student_id')

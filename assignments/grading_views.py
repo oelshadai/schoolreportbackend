@@ -41,11 +41,11 @@ class GradingViewSet(viewsets.ViewSet):
             status='PUBLISHED'
         )
 
-        # Homework/project pending by StudentAssignment SUBMITTED
+        # Homework/project/exercise pending by StudentAssignment SUBMITTED
         pending_hw_assignments = StudentAssignment.objects.filter(
             assignment__in=base_assignments,
             status='SUBMITTED',
-            assignment__assignment_type__in=['HOMEWORK', 'PROJECT']
+            assignment__assignment_type__in=['HOMEWORK', 'PROJECT', 'EXERCISE']
         ).values_list('assignment_id', flat=True).distinct()
 
         # Quiz/exam pending by short_answer/project quiz answers not yet graded OR submitted attempts
@@ -69,49 +69,14 @@ class GradingViewSet(viewsets.ViewSet):
         assignment_data = []
         for assignment in assignments:
             # Count submissions needing grading
-            if assignment.assignment_type in ['HOMEWORK', 'PROJECT']:
+            if assignment.assignment_type in ['HOMEWORK', 'PROJECT', 'EXERCISE']:
+                # All submitted homework/project/exercise need manual grading
                 pending_count = StudentAssignment.objects.filter(
                     assignment=assignment,
                     status='SUBMITTED'
                 ).count()
             else:
-                pending_count = QuizAnswer.objects.filter(
-                    attempt__assignment=assignment,
-                    question__question_type__in=['short_answer', 'project'],
-                    is_correct__isnull=True
-                ).values('attempt').distinct().count()
-
-            if pending_count > 0:
-                assignment_data.append({
-                    'id': assignment.id,
-                    'title': assignment.title,
-                    'description': assignment.description,
-                    'assignment_type': assignment.assignment_type,
-                    'due_date': assignment.due_date,
-                    'max_score': assignment.max_score,
-                    'subject': {
-                        'id': assignment.class_subject.subject.id if assignment.class_subject else None,
-                        'name': assignment.class_subject.subject.name if assignment.class_subject else 'General'
-                    },
-                    'class_instance': {
-                        'id': assignment.class_instance.id,
-                        'name': str(assignment.class_instance)
-                    },
-                    'pending_submissions': pending_count,
-                    'is_auto_graded': assignment.auto_grade and assignment.assignment_type in ['QUIZ', 'EXAM']
-                })
-        
-        assignment_data = []
-        for assignment in assignments:
-            # Count submissions needing grading
-            if assignment.assignment_type in ['HOMEWORK', 'PROJECT']:
-                # All submitted homework/projects need manual grading
-                pending_count = StudentAssignment.objects.filter(
-                    assignment=assignment,
-                    status='SUBMITTED'
-                ).count()
-            else:
-                # For quizzes/exams, count those with short answer or project questions
+                # For quizzes/exams, count those with ungraded short answer or project questions
                 pending_count = QuizAnswer.objects.filter(
                     attempt__assignment=assignment,
                     question__question_type__in=['short_answer', 'project'],
@@ -158,7 +123,7 @@ class GradingViewSet(viewsets.ViewSet):
         
         submissions = []
         
-        if assignment.assignment_type in ['HOMEWORK', 'PROJECT']:
+        if assignment.assignment_type in ['HOMEWORK', 'PROJECT', 'EXERCISE']:
             # Get regular submissions
             student_assignments = StudentAssignment.objects.filter(
                 assignment=assignment,
@@ -188,50 +153,57 @@ class GradingViewSet(viewsets.ViewSet):
                 })
         
         elif assignment.assignment_type in ['QUIZ', 'EXAM']:
-            # Get quiz attempts with short answer or project questions
+            # Get ALL quiz attempts that have at least one manual-grading question
             quiz_attempts = QuizAttempt.objects.filter(
                 assignment=assignment,
                 status__in=['SUBMITTED', 'GRADED']
             ).select_related('student').order_by('student__first_name')
             
             for attempt in quiz_attempts:
-                # Check if this attempt has UNGRADED questions needing manual grading
-                ungraded_manual_questions = QuizAnswer.objects.filter(
+                # Only include attempts that have short_answer/project questions
+                manual_answers = QuizAnswer.objects.filter(
                     attempt=attempt,
-                    question__question_type__in=['short_answer', 'project'],
-                    is_correct__isnull=True  # Not yet graded
-                )
-                
-                if ungraded_manual_questions.exists():
-                    # Get text content from short answer questions
-                    text_answers = []
-                    for qa in ungraded_manual_questions:
-                        if qa.question.question_type == 'short_answer':
-                            text_answers.append(f"Q: {qa.question.question_text}\nA: {qa.answer_text}")
-                        elif qa.question.question_type == 'project':
-                            text_answers.append(f"Q: {qa.question.question_text}\nFiles: {len(qa.uploaded_files.all())} uploaded")
-                    
-                    submissions.append({
-                        'id': f"quiz_{attempt.id}",
-                        'student': {
-                            'id': attempt.student.id,
-                            'name': attempt.student.get_full_name(),
-                            'student_id': attempt.student.student_id
-                        },
-                        'assignment': {
-                            'id': assignment.id,
-                            'title': assignment.title,
-                            'max_score': assignment.max_score
-                        },
-                        'submitted_at': attempt.submitted_at,
-                        'file_url': None,  # Quiz files handled separately
-                        'text_content': '\n\n'.join(text_answers),
-                        'score': attempt.score,
-                        'feedback': '',  # Quiz feedback handled per question
-                        'status': 'submitted',  # Always show as needing grading
-                        'is_auto_graded': False,
-                        'quiz_attempt_id': attempt.id
-                    })
+                    question__question_type__in=['short_answer', 'project']
+                ).select_related('question')
+
+                if not manual_answers.exists():
+                    # Pure MCQ quiz – no manual grading needed, skip
+                    continue
+
+                ungraded_count = manual_answers.filter(is_correct__isnull=True).count()
+                needs_grading = ungraded_count > 0
+
+                # Build preview text for all manual answers
+                text_answers = []
+                for qa in manual_answers:
+                    if qa.question.question_type == 'short_answer':
+                        text_answers.append(f"Q: {qa.question.question_text}\nA: {qa.answer_text or '(no answer)'}")
+                    else:
+                        text_answers.append(f"Q: {qa.question.question_text}\nFiles: {qa.uploaded_files.count()} uploaded")
+
+                submissions.append({
+                    'id': f"quiz_{attempt.id}",
+                    'student': {
+                        'id': attempt.student.id,
+                        'name': attempt.student.get_full_name(),
+                        'student_id': attempt.student.student_id
+                    },
+                    'assignment': {
+                        'id': assignment.id,
+                        'title': assignment.title,
+                        'max_score': assignment.max_score
+                    },
+                    'submitted_at': attempt.submitted_at,
+                    'file_url': None,
+                    'text_content': '\n\n'.join(text_answers),
+                    'score': attempt.score,
+                    'feedback': '',
+                    'status': 'submitted' if needs_grading else 'graded',
+                    'needs_grading': needs_grading,
+                    'ungraded_count': ungraded_count,
+                    'is_auto_graded': False,
+                    'quiz_attempt_id': attempt.id
+                })
         
         return Response({'results': submissions})
     
@@ -245,10 +217,13 @@ class GradingViewSet(viewsets.ViewSet):
         if not submission_id or score is None:
             return Response({'error': 'submission_id and score are required'}, status=400)
         
+        # Normalise to string so integer IDs from regular submissions don't crash .startswith()
+        submission_id_str = str(submission_id)
+
         try:
-            if submission_id.startswith('quiz_'):
+            if submission_id_str.startswith('quiz_'):
                 # Handle quiz grading
-                attempt_id = submission_id.replace('quiz_', '')
+                attempt_id = submission_id_str.replace('quiz_', '')
                 attempt = get_object_or_404(QuizAttempt, id=attempt_id)
                 
                 # Update attempt score and status
@@ -297,7 +272,8 @@ class GradingViewSet(viewsets.ViewSet):
     def quiz_details(self, request, pk=None):
         """Get detailed quiz answers for grading"""
         try:
-            attempt_id = pk.replace('quiz_', '') if pk.startswith('quiz_') else pk
+            pk_str = str(pk) if pk else ''
+            attempt_id = pk_str.replace('quiz_', '') if pk_str.startswith('quiz_') else pk_str
             attempt = get_object_or_404(QuizAttempt, id=attempt_id)
             
             # Get all answers for this attempt

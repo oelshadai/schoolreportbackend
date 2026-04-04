@@ -498,12 +498,16 @@ class SchoolSettingsView(APIView):
             partial=True
         )
         if serializer.is_valid():
-            serializer.save()
+            school = serializer.save()
+            # Sync Term.is_current with school.current_term so all parts of the
+            # system that query Term.is_current=True stay in sync
+            if 'current_term' in request.data and school.current_term_id:
+                Term.objects.filter(academic_year__school=school).update(is_current=False)
+                Term.objects.filter(id=school.current_term_id).update(is_current=True)
             return Response({
                 "message": "School settings updated successfully",
                 "data": serializer.data
             })
         
-        # Add debug logging
         print("Validation errors:", serializer.errors)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

@@ -29,6 +29,7 @@ urlpatterns = [
     path('teacher/<int:pk>/publish/', TeacherAssignmentViewSet.as_view({'post': 'publish'}), name='teacher-publish-assignment'),
     path('teacher/<int:pk>/publish_assignment/', TeacherAssignmentViewSet.as_view({'post': 'publish_assignment'}), name='teacher-publish-assignment-alt'),
     path('teacher/<int:pk>/submissions/', TeacherAssignmentViewSet.as_view({'get': 'get_submissions'}), name='teacher-assignment-submissions'),
+    path('teacher/<int:pk>/auto-submit-overdue/', TeacherAssignmentViewSet.as_view({'post': 'auto_submit_overdue'}), name='teacher-auto-submit-overdue'),
     path('teacher/<int:pk>/reopen-submission/', TeacherAssignmentViewSet.as_view({'post': 'reopen_submission'}), name='teacher-reopen-submission'),
     path('teacher/<int:pk>/extend-deadline/', TeacherAssignmentViewSet.as_view({'post': 'extend_deadline'}), name='teacher-extend-deadline'),
     path('teacher/<int:pk>/bulk-reopen/', TeacherAssignmentViewSet.as_view({'post': 'bulk_reopen_submissions'}), name='teacher-bulk-reopen'),
