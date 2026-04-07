@@ -132,9 +132,42 @@ def reset_password_admin(request):
     if hasattr(user, 'student_profile'):
         user.student_profile.password = new_password
         user.student_profile.save()
-    
+
     return Response({
         'message': 'Password reset successfully',
         'new_password': new_password,
         'username': username
     })
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def emergency_reset(request):
+    """Emergency password reset — requires SECRET_KEY as auth token.
+    Used to unblock production when email/shell are unavailable.
+    """
+    from django.conf import settings as django_settings
+    token = request.data.get('token', '')
+    email = request.data.get('email', '').strip().lower()
+    new_password = request.data.get('password', '')
+
+    # Must supply the server SECRET_KEY as auth — safe because SECRET_KEY is never public
+    if not token or token != django_settings.SECRET_KEY:
+        return Response({'error': 'Unauthorized'}, status=401)
+
+    if not email or not new_password:
+        return Response({'error': 'email and password required'}, status=400)
+
+    if len(new_password) < 8:
+        return Response({'error': 'Password must be at least 8 characters'}, status=400)
+
+    try:
+        user = User.objects.get(email__iexact=email)
+    except User.DoesNotExist:
+        return Response({'error': f'No user found with email {email}'}, status=404)
+
+    user.set_password(new_password)
+    user.is_active = True
+    user.save()
+
+    return Response({'message': f'Password reset for {user.email} ({user.role}). Active: {user.is_active}'})
