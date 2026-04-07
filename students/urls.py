@@ -6,6 +6,11 @@ from .auth_views import student_login, student_dashboard, student_logout, studen
 from .portal_views import student_classes, student_subjects, student_announcements, student_profile, student_assignments_list, student_schedule, student_reports, student_published_reports, download_student_report, view_student_published_report
 from .teacher_attendance_functions import teacher_attendance_my_classes, teacher_attendance_class_students, teacher_attendance_save
 from accounts.password_views import change_password
+from .profile_change_views import (
+    student_request_profile_change, student_get_pending_request,
+    teacher_request_profile_change, teacher_get_pending_request,
+    admin_list_profile_change_requests, admin_approve_profile_change, admin_reject_profile_change,
+)
 
 router = DefaultRouter(trailing_slash=True)
 router.register(r'my-attendance', StudentAttendanceViewSet, basename='my-attendance')
@@ -46,4 +51,13 @@ urlpatterns = [
     
     # Behaviour
     path('behaviour/create/', create_behaviour_record, name='create_behaviour'),
+
+    # Profile change requests (student/teacher → needs admin approval)
+    path('auth/request-profile-change/', student_request_profile_change, name='student_request_profile_change'),
+    path('auth/pending-profile-change/', student_get_pending_request, name='student_pending_profile_change'),
+    path('auth/teacher-request-profile-change/', teacher_request_profile_change, name='teacher_request_profile_change'),
+    path('auth/teacher-pending-profile-change/', teacher_get_pending_request, name='teacher_pending_profile_change'),
+    path('profile-change-requests/', admin_list_profile_change_requests, name='admin_list_profile_change_requests'),
+    path('profile-change-requests/<int:pk>/approve/', admin_approve_profile_change, name='admin_approve_profile_change'),
+    path('profile-change-requests/<int:pk>/reject/', admin_reject_profile_change, name='admin_reject_profile_change'),
 ] + router.urls

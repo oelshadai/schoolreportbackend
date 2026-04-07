@@ -213,6 +213,7 @@ class Behaviour(models.Model):
     
     # Teacher Remarks
     class_teacher_remarks = models.TextField(blank=True, help_text="Class teacher's remarks about the student")
+    headmaster_remarks = models.TextField(blank=True, help_text="Headmaster/Head teacher's remarks about the student")
     
     # Promotion information
     promoted_to = models.CharField(max_length=100, blank=True, help_text="Next class/level student is promoted to")
@@ -264,3 +265,53 @@ class StudentPromotion(models.Model):
         if self.is_graduated:
             return f"{self.student.get_full_name()} - Graduated from {self.from_class}"
         return f"{self.student.get_full_name()} - {self.from_class} to {self.to_class}"
+
+
+class ProfileChangeRequest(models.Model):
+    """Tracks profile change requests from students and teachers, pending admin approval."""
+
+    REQUESTER_TYPE_STUDENT = 'student'
+    REQUESTER_TYPE_TEACHER = 'teacher'
+    REQUESTER_TYPE_CHOICES = [
+        (REQUESTER_TYPE_STUDENT, 'Student'),
+        (REQUESTER_TYPE_TEACHER, 'Teacher'),
+    ]
+
+    STATUS_PENDING = 'PENDING'
+    STATUS_APPROVED = 'APPROVED'
+    STATUS_REJECTED = 'REJECTED'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    requester_type = models.CharField(max_length=10, choices=REQUESTER_TYPE_CHOICES)
+    # FK to the user who made the request (student's linked user or teacher user)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='profile_change_requests',
+    )
+    # For quick display — denormalised name
+    requester_name = models.CharField(max_length=200, blank=True)
+    # JSON snapshot of requested field changes e.g. {"guardian_phone": "0244...", "guardian_name": "..."}
+    requested_changes = models.JSONField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    rejection_reason = models.TextField(blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='reviewed_profile_requests',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'profile_change_requests'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.requester_name} – {self.status} ({self.created_at:%Y-%m-%d})"
+

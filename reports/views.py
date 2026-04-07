@@ -100,7 +100,6 @@ class ReportCardViewSet(viewsets.ModelViewSet):
         
         if student.school.show_class_average and student.current_class:
             # Get all students in the same class and term
-            from scores.models import SubjectResult
             class_students = Student.objects.filter(
                 current_class=student.current_class,
                 is_active=True
