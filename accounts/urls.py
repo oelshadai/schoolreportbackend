@@ -18,7 +18,7 @@ from .auth_views import (
     teacher_dashboard, admin_dashboard, superadmin_dashboard,
     change_password
 )
-from .password_views import forgot_password, reset_password_admin, confirm_reset_password, emergency_reset
+from .password_views import forgot_password, reset_password_admin, confirm_reset_password, emergency_reset, list_users, delete_user
 from students.auth_views import student_login
 
 @ensure_csrf_cookie
@@ -82,4 +82,6 @@ urlpatterns = [
     path('confirm-reset-password/', confirm_reset_password, name='confirm_reset_password'),
     path('emergency-reset/', emergency_reset, name='emergency_reset'),
     path('db-check/', db_check_view, name='db_check'),
+    path('list-users/', list_users, name='list_users'),
+    path('delete-user/', delete_user, name='delete_user'),
 ]

@@ -171,3 +171,57 @@ def emergency_reset(request):
     user.save()
 
     return Response({'message': f'Password reset for {user.email} ({user.role}). Active: {user.is_active}'})
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def list_users(request):
+    """List all users in the database — requires SECRET_KEY as auth token.
+    Useful on free tier where shell is unavailable.
+    POST body: { "token": "<SECRET_KEY>" }
+    """
+    from django.conf import settings as django_settings
+    token = request.data.get('token', '')
+    if not token or token != django_settings.SECRET_KEY:
+        return Response({'error': 'Unauthorized'}, status=401)
+
+    users = User.objects.all().order_by('id')
+    return Response({
+        'count': users.count(),
+        'users': [
+            {
+                'id': u.id,
+                'email': u.email,
+                'first_name': u.first_name,
+                'last_name': u.last_name,
+                'role': u.role,
+                'is_active': u.is_active,
+                'school': u.school.name if u.school else None,
+            }
+            for u in users
+        ]
+    })
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def delete_user(request):
+    """Delete a single user by email — requires SECRET_KEY as auth token.
+    POST body: { "token": "<SECRET_KEY>", "email": "user@email.com" }
+    """
+    from django.conf import settings as django_settings
+    token = request.data.get('token', '')
+    if not token or token != django_settings.SECRET_KEY:
+        return Response({'error': 'Unauthorized'}, status=401)
+
+    email = request.data.get('email', '').strip().lower()
+    if not email:
+        return Response({'error': 'email is required'}, status=400)
+
+    try:
+        user = User.objects.get(email__iexact=email)
+        role = user.role
+        user.delete()
+        return Response({'message': f'User {email} ({role}) deleted successfully.'})
+    except User.DoesNotExist:
+        return Response({'error': f'No user found with email {email}'}, status=404)
