@@ -111,6 +111,7 @@ def confirm_reset_password(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+def reset_password_admin(request):
     """Admin reset password for any user"""
     username = request.data.get('username')
     
