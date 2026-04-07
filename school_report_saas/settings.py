@@ -84,34 +84,37 @@ TEMPLATES = [
 WSGI_APPLICATION = 'school_report_saas.wsgi.application'
 
 # Database
-if DEBUG:
+# DATABASE_URL always takes priority (even in DEBUG mode) so that a
+# mistaken DEBUG=True in Render's env does NOT silently fall back to
+# ephemeral SQLite and wipe all user data on every restart.
+_database_url = os.environ.get("DATABASE_URL", "")
+if _database_url:
+    DATABASES = {
+        "default": dj_database_url.parse(
+            _database_url,
+            conn_max_age=600,
+            ssl_require=not DEBUG  # no SSL needed for local dev
+        )
+    }
+elif DEBUG:
+    # Local development only — SQLite is fine here
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
             'OPTIONS': {
-                'timeout': 30,  # 30 second timeout for SQLite
+                'timeout': 30,
             },
         }
     }
 else:
-    database_url = os.environ.get("DATABASE_URL", "")
-    if database_url:
-        DATABASES = {
-            "default": dj_database_url.parse(
-                database_url,
-                conn_max_age=600,
-                ssl_require=True
-            )
-        }
-    else:
-        # Fallback to SQLite if DATABASE_URL not set (shouldn't happen in production)
-        DATABASES = {
-            'default': {
-                'ENGINE': 'django.db.backends.sqlite3',
-                'NAME': BASE_DIR / 'db.sqlite3',
-            }
-        }
+    # Production with no DATABASE_URL — raise a clear error instead of
+    # silently using ephemeral SQLite and losing all data.
+    raise RuntimeError(
+        "DATABASE_URL environment variable is not set. "
+        "Add the PostgreSQL connection string in your Render service's "
+        "Environment settings before deploying."
+    )
 
 # Custom User
 AUTH_USER_MODEL = 'accounts.User'

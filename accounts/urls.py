@@ -1,6 +1,7 @@
 from django.urls import path
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.http import JsonResponse
+from django.conf import settings as django_settings
 from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     SecureTokenObtainPairView,
@@ -24,6 +25,23 @@ from students.auth_views import student_login
 def csrf_token_view(request):
     """Provide CSRF token for frontend"""
     return JsonResponse({'csrf_token': request.META.get('CSRF_COOKIE')})
+
+def db_check_view(request):
+    """Public diagnostic: shows which database engine is active so you can
+    verify PostgreSQL (not SQLite) is used in production."""
+    db = django_settings.DATABASES.get('default', {})
+    engine = db.get('ENGINE', 'unknown')
+    name = db.get('NAME', '')
+    is_postgres = 'postgresql' in engine or 'postgre' in engine
+    return JsonResponse({
+        'engine': engine,
+        'is_postgres': is_postgres,
+        'database': str(name) if is_postgres else '(sqlite)',
+        'warning': None if is_postgres else (
+            'Using SQLite — all data will be lost on server restart! '
+            'Set DATABASE_URL in your Render environment variables.'
+        )
+    })
 
 # Student-aware profile view
 class StudentAwareProfileView(UserProfileView):
@@ -63,4 +81,5 @@ urlpatterns = [
     path('reset-password/', reset_password_admin, name='reset_password_admin'),
     path('confirm-reset-password/', confirm_reset_password, name='confirm_reset_password'),
     path('emergency-reset/', emergency_reset, name='emergency_reset'),
+    path('db-check/', db_check_view, name='db_check'),
 ]
