@@ -23,6 +23,3 @@ python manage.py migrate --noinput
 
 # Fix any students that are missing user accounts
 python manage.py fix_student_users || true
-
-# Seed essential school and user accounts (safe to run on every deploy)
-python manage.py seed_production || true
