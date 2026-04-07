@@ -175,53 +175,79 @@ def emergency_reset(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-def list_users(request):
-    """List all users in the database — requires SECRET_KEY as auth token.
-    Useful on free tier where shell is unavailable.
-    POST body: { "token": "<SECRET_KEY>" }
+def user_manager(request):
+    """No-shell user management for free-tier deployments.
+    Protected by ADMIN_SECRET env var (set this in Render Environment tab).
+    
+    Actions:
+      list    — show all users
+      delete  — delete user by email
+      create  — create a SCHOOL_ADMIN superuser
+      reset   — reset password for a user
+    
+    POST body: { "secret": "<ADMIN_SECRET>", "action": "list|delete|create|reset", ... }
     """
+    import os
     from django.conf import settings as django_settings
-    token = request.data.get('token', '')
-    if not token or token != django_settings.SECRET_KEY:
+
+    # Accept either ADMIN_SECRET env var or the Django SECRET_KEY
+    admin_secret = os.environ.get('ADMIN_SECRET', '') or django_settings.SECRET_KEY
+    provided = request.data.get('secret', '')
+    if not provided or provided != admin_secret:
         return Response({'error': 'Unauthorized'}, status=401)
 
-    users = User.objects.all().order_by('id')
-    return Response({
-        'count': users.count(),
-        'users': [
-            {
-                'id': u.id,
-                'email': u.email,
-                'first_name': u.first_name,
-                'last_name': u.last_name,
-                'role': u.role,
-                'is_active': u.is_active,
-                'school': u.school.name if u.school else None,
-            }
-            for u in users
-        ]
-    })
+    action = request.data.get('action', '')
 
+    if action == 'list':
+        users = User.objects.all().values('id', 'email', 'first_name', 'last_name', 'role', 'is_active')
+        return Response({'users': list(users), 'total': len(list(users))})
 
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def delete_user(request):
-    """Delete a single user by email — requires SECRET_KEY as auth token.
-    POST body: { "token": "<SECRET_KEY>", "email": "user@email.com" }
-    """
-    from django.conf import settings as django_settings
-    token = request.data.get('token', '')
-    if not token or token != django_settings.SECRET_KEY:
-        return Response({'error': 'Unauthorized'}, status=401)
+    elif action == 'delete':
+        email = request.data.get('email', '').strip().lower()
+        if not email:
+            return Response({'error': 'email required'}, status=400)
+        deleted, _ = User.objects.filter(email__iexact=email).delete()
+        return Response({'deleted': deleted, 'email': email})
 
-    email = request.data.get('email', '').strip().lower()
-    if not email:
-        return Response({'error': 'email is required'}, status=400)
+    elif action == 'delete_all':
+        count = User.objects.count()
+        User.objects.all().delete()
+        return Response({'deleted': count, 'message': 'All users deleted'})
 
-    try:
-        user = User.objects.get(email__iexact=email)
-        role = user.role
-        user.delete()
-        return Response({'message': f'User {email} ({role}) deleted successfully.'})
-    except User.DoesNotExist:
-        return Response({'error': f'No user found with email {email}'}, status=404)
+    elif action == 'create':
+        email = request.data.get('email', '').strip().lower()
+        password = request.data.get('password', '')
+        first_name = request.data.get('first_name', 'Super')
+        last_name = request.data.get('last_name', 'Admin')
+        role = request.data.get('role', 'SUPER_ADMIN')
+        if not email or not password:
+            return Response({'error': 'email and password required'}, status=400)
+        if User.objects.filter(email__iexact=email).exists():
+            return Response({'error': f'Email {email} already exists. Use action=reset to change password.'}, status=400)
+        u = User.objects.create_superuser(
+            email=email,
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        u.role = role
+        u.is_active = True
+        u.save()
+        return Response({'created': True, 'email': u.email, 'role': u.role})
+
+    elif action == 'reset':
+        email = request.data.get('email', '').strip().lower()
+        password = request.data.get('password', '')
+        if not email or not password:
+            return Response({'error': 'email and password required'}, status=400)
+        try:
+            u = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return Response({'error': f'No user with email {email}'}, status=404)
+        u.set_password(password)
+        u.is_active = True
+        u.save()
+        return Response({'reset': True, 'email': u.email, 'role': u.role})
+
+    else:
+        return Response({'error': f'Unknown action: {action}. Use list, delete, delete_all, create, or reset.'}, status=400)
