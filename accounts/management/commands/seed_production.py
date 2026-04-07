@@ -49,10 +49,10 @@ class Command(BaseCommand):
     def _ensure_users(self, school):
         accounts = [
             # (email, password, first, last, role, is_staff, is_superuser)
-            ('oelshadai565@gmail.com', 'Admin@1234', 'osei', 'elshadai', 'SCHOOL_ADMIN', False, False),
-            ('oseielshadai18@gmail.com', 'Admin@1234', 'osei', 'elshadai', 'TEACHER', False, False),
+            ('oelshadai565@gmail.com', 'Nanama22.', 'osei', 'elshadai', 'SCHOOL_ADMIN', False, False),
+            ('oseielshadai18@gmail.com', 'Nanama22.', 'osei', 'elshadai', 'TEACHER', False, False),
             ('nanaamaadomah18@gmail.com', 'Nanama22.', 'ADOMAH', 'JACKLINE', 'TEACHER', False, False),
-            ('admin@example.com', 'Admin@1234', 'Admin', 'User', 'SUPER_ADMIN', True, True),
+            ('admin@example.com', 'Nanama22.', 'Admin', 'User', 'SUPER_ADMIN', True, True),
         ]
 
         for email, password, first, last, role, is_staff, is_superuser in accounts:
