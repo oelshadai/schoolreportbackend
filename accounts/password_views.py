@@ -191,9 +191,7 @@ def emergency_list_users(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def emergency_wipe_users(request):
-    """Delete ALL users and schools — requires SECRET_KEY + confirm flag.
-    Use this to wipe everything and start fresh from the registration screen.
-    """
+    """Delete ALL app data — requires SECRET_KEY + confirm flag."""
     from django.conf import settings as django_settings
     token = request.data.get('token', '')
     confirm = request.data.get('confirm', '')
@@ -204,17 +202,41 @@ def emergency_wipe_users(request):
     if confirm != 'WIPE_EVERYTHING':
         return Response({'error': 'Pass confirm="WIPE_EVERYTHING" to proceed'}, status=400)
 
-    user_count = User.objects.count()
-    User.objects.all().delete()
+    from django.db import connection
+    counts = {}
 
-    # Also wipe schools so school name/email isn't blocked either
-    try:
-        from schools.models import School
-        school_count = School.objects.count()
-        School.objects.all().delete()
-    except Exception:
-        school_count = 0
+    # Delete in FK-safe order via raw SQL so nothing blocks
+    tables = [
+        'submission_files', 'quiz_answer_files', 'quiz_answers', 'quiz_attempts',
+        'task_answers', 'task_attempts', 'task_questions', 'timed_tasks',
+        'question_files', 'question_options', 'questions',
+        'student_assignments', 'assignment_attempts', 'assignments',
+        'continuous_assessments', 'exam_scores',
+        'subject_results', 'term_results', 'report_cards',
+        'daily_attendance', 'attendance', 'behaviour',
+        'student_promotions', 'student_portal_access', 'profile_change_requests',
+        'fees_studentfee', 'fees_feepayment', 'fees_feecollection',
+        'fees_feestructure', 'fees_feetype',
+        'notifications_notification', 'notifications_supportticket',
+        'events_event', 'announcements', 'payments',
+        'subscriptions', 'subscription_plans',
+        'students', 'teachers_specializations', 'teachers',
+        'lesson_slots', 'class_subjects', 'subjects', 'grading_scales',
+        'classes', 'terms', 'academic_years',
+        'users_groups', 'users_user_permissions', 'users', 'schools',
+    ]
 
+    with connection.cursor() as cursor:
+        for table in tables:
+            try:
+                cursor.execute(f'DELETE FROM "{table}"')
+                counts[table] = cursor.rowcount
+            except Exception:
+                pass  # table may not exist or already empty
+
+    total = sum(v for v in counts.items() if v)
+    deleted = {k: v for k, v in counts.items() if v > 0}
     return Response({
-        'message': f'Wiped {user_count} users and {school_count} schools. Database is now empty — go register your school.'
+        'message': 'All data wiped. Database is empty — go register your school fresh.',
+        'deleted': deleted
     })
