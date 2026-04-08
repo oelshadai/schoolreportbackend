@@ -175,79 +175,46 @@ def emergency_reset(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-def user_manager(request):
-    """No-shell user management for free-tier deployments.
-    Protected by ADMIN_SECRET env var (set this in Render Environment tab).
-    
-    Actions:
-      list    — show all users
-      delete  — delete user by email
-      create  — create a SCHOOL_ADMIN superuser
-      reset   — reset password for a user
-    
-    POST body: { "secret": "<ADMIN_SECRET>", "action": "list|delete|create|reset", ... }
+def emergency_list_users(request):
+    """List all users in DB — requires SECRET_KEY as token.
+    Use this to find which emails already exist when 'email already in use'.
     """
-    import os
     from django.conf import settings as django_settings
-
-    # Accept either ADMIN_SECRET env var or the Django SECRET_KEY
-    admin_secret = os.environ.get('ADMIN_SECRET', '') or django_settings.SECRET_KEY
-    provided = request.data.get('secret', '')
-    if not provided or provided != admin_secret:
+    token = request.data.get('token', '')
+    if not token or token != django_settings.SECRET_KEY:
         return Response({'error': 'Unauthorized'}, status=401)
 
-    action = request.data.get('action', '')
+    users = User.objects.all().values('id', 'email', 'first_name', 'last_name', 'role', 'is_active')
+    return Response({'count': len(users), 'users': list(users)})
 
-    if action == 'list':
-        users = User.objects.all().values('id', 'email', 'first_name', 'last_name', 'role', 'is_active')
-        return Response({'users': list(users), 'total': len(list(users))})
 
-    elif action == 'delete':
-        email = request.data.get('email', '').strip().lower()
-        if not email:
-            return Response({'error': 'email required'}, status=400)
-        deleted, _ = User.objects.filter(email__iexact=email).delete()
-        return Response({'deleted': deleted, 'email': email})
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def emergency_wipe_users(request):
+    """Delete ALL users and schools — requires SECRET_KEY + confirm flag.
+    Use this to wipe everything and start fresh from the registration screen.
+    """
+    from django.conf import settings as django_settings
+    token = request.data.get('token', '')
+    confirm = request.data.get('confirm', '')
 
-    elif action == 'delete_all':
-        count = User.objects.count()
-        User.objects.all().delete()
-        return Response({'deleted': count, 'message': 'All users deleted'})
+    if not token or token != django_settings.SECRET_KEY:
+        return Response({'error': 'Unauthorized'}, status=401)
 
-    elif action == 'create':
-        email = request.data.get('email', '').strip().lower()
-        password = request.data.get('password', '')
-        first_name = request.data.get('first_name', 'Super')
-        last_name = request.data.get('last_name', 'Admin')
-        role = request.data.get('role', 'SUPER_ADMIN')
-        if not email or not password:
-            return Response({'error': 'email and password required'}, status=400)
-        if User.objects.filter(email__iexact=email).exists():
-            return Response({'error': f'Email {email} already exists. Use action=reset to change password.'}, status=400)
-        u = User.objects.create_superuser(
-            email=email,
-            password=password,
-            first_name=first_name,
-            last_name=last_name,
-        )
-        u.role = role
-        u.is_active = True
-        u.save()
-        return Response({'created': True, 'email': u.email, 'role': u.role})
+    if confirm != 'WIPE_EVERYTHING':
+        return Response({'error': 'Pass confirm="WIPE_EVERYTHING" to proceed'}, status=400)
 
-    elif action == 'reset':
-        email = request.data.get('email', '').strip().lower()
-        password = request.data.get('password', '')
-        if not email or not password:
-            return Response({'error': 'email and password required'}, status=400)
-        try:
-            u = User.objects.get(email__iexact=email)
-        except User.DoesNotExist:
-            return Response({'error': f'No user with email {email}'}, status=404)
-        u.set_password(password)
-        u.is_active = True
-        u.save()
-        return Response({'reset': True, 'email': u.email, 'role': u.role})
+    user_count = User.objects.count()
+    User.objects.all().delete()
 
-    else:
-        return Response({'error': f'Unknown action: {action}. Use list, delete, delete_all, create, or reset.'}, status=400)
+    # Also wipe schools so school name/email isn't blocked either
+    try:
+        from schools.models import School
+        school_count = School.objects.count()
+        School.objects.all().delete()
+    except Exception:
+        school_count = 0
+
+    return Response({
+        'message': f'Wiped {user_count} users and {school_count} schools. Database is now empty — go register your school.'
+    })
