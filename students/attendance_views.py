@@ -27,19 +27,28 @@ class TeacherAttendanceViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'], url_path='my-classes')
     def my_classes(self, request):
         """Get classes assigned to current teacher"""
-        print(f"DEBUG: my_classes action called by {request.user.email}")
-        
-        # Simple test response
-        return Response({
-            'classes': [{
-                'id': 1,
-                'name': 'Test Class',
-                'level': 'Basic 1',
-                'student_count': 0,
-                'attendance_taken_today': False
-            }],
-            'message': 'Test response from ViewSet'
-        })
+        user = request.user
+        if not hasattr(user, 'school') or not user.school:
+            return Response({'classes': []})
+
+        today = date.today()
+        classes = Class.objects.filter(school=user.school, class_teacher=user)
+
+        classes_data = []
+        for cls in classes:
+            student_count = Student.objects.filter(current_class=cls, is_active=True).count()
+            attendance_taken_today = DailyAttendance.objects.filter(
+                class_instance=cls, date=today
+            ).exists()
+            classes_data.append({
+                'id': cls.id,
+                'name': f"{cls.get_level_display()} {cls.section}".strip() if cls.section else cls.get_level_display(),
+                'level': cls.level,
+                'student_count': student_count,
+                'attendance_taken_today': attendance_taken_today,
+            })
+
+        return Response({'classes': classes_data})
     
     @action(detail=False, methods=['get'], url_path='class-students')
     def class_students(self, request):

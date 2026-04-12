@@ -175,10 +175,13 @@ class ClassSubjectViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.school:
             qs = ClassSubject.objects.filter(class_instance__school=user.school)
-            # Teachers can only see assignments for classes they are class_teacher (owner) or where they are set as teacher for the subject
-            if user.role == 'TEACHER':
-                qs = qs.filter(models.Q(class_instance__class_teacher=user) | models.Q(teacher=user))
             class_id = self.request.query_params.get('class_instance')
+            # Teachers can only see subjects for classes they are assigned to.
+            # When a specific class_instance is requested we allow it so teachers can
+            # load subjects to enter scores — which class they can access is already
+            # controlled by the /teachers/assignments/ endpoint in ScoreEntry.
+            if user.role == 'TEACHER' and not class_id:
+                qs = qs.filter(models.Q(class_instance__class_teacher=user) | models.Q(teacher=user))
             if class_id:
                 qs = qs.filter(class_instance_id=class_id)
             subject_id = self.request.query_params.get('subject')
