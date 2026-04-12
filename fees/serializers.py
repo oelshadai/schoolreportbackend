@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import FeeType, FeeStructure, StudentFee, FeePayment, FeeCollection
+from .models import FeeType, FeeStructure, StudentFee, FeePayment, FeeCollection, TermBill
 from students.models import Student
 from django.contrib.auth import get_user_model
 
@@ -9,7 +9,12 @@ User = get_user_model()
 class FeeTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = FeeType
-        fields = ['id', 'name', 'description', 'is_active']
+        fields = [
+            'id', 'name', 'description', 'is_active',
+            'collection_frequency', 'collection_day',
+            'allow_class_teacher_collection', 'allow_any_teacher_collection',
+            'require_payment_approval',
+        ]
 
 
 class FeeStructureSerializer(serializers.ModelSerializer):
@@ -58,42 +63,58 @@ class FeePaymentSerializer(serializers.ModelSerializer):
 
 class FeePaymentCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating fee payments"""
-    
+
     class Meta:
         model = FeePayment
         fields = ['student', 'fee_type', 'amount_paid', 'payment_method', 'reference_number', 'notes']
-    
+
     def create(self, validated_data):
         from django.utils import timezone
-        
-        # Get current user (collector)
+
         request = self.context.get('request')
         validated_data['school'] = request.user.school
         validated_data['collected_by'] = request.user
-        
-        # Create payment
+
         payment = FeePayment.objects.create(**validated_data)
-        
-        # Update StudentFee record
-        student_fee, created = StudentFee.objects.get_or_create(
+
+        # ------------------------------------------------------------------
+        # Update the running StudentFee balance
+        # ------------------------------------------------------------------
+        student_fee, _ = StudentFee.objects.get_or_create(
             student=validated_data['student'],
             school=validated_data['school'],
-            defaults={'total_amount': 0, 'amount_paid': 0}
+            defaults={'total_amount': 0, 'amount_paid': 0, 'balance': 0}
         )
-        
-        # Update amounts
         student_fee.amount_paid += validated_data['amount_paid']
         student_fee.balance = student_fee.total_amount - student_fee.amount_paid
         student_fee.last_payment_date = timezone.now()
-        
-        # Update status
         if student_fee.balance <= 0:
             student_fee.status = 'PAID'
         elif student_fee.amount_paid > 0:
             student_fee.status = 'PARTIAL'
-        
         student_fee.save()
-        
+
+        # ------------------------------------------------------------------
+        # If the fee type has a TermBill for the current term, update it too
+        # ------------------------------------------------------------------
+        try:
+            from schools.models import Term
+            current_term = Term.objects.filter(
+                academic_year__school=validated_data['school'],
+                is_current=True
+            ).first()
+            if current_term:
+                term_bill = TermBill.objects.filter(
+                    student=validated_data['student'],
+                    term=current_term,
+                    fee_type=validated_data['fee_type']
+                ).first()
+                if term_bill:
+                    term_bill.amount_paid += validated_data['amount_paid']
+                    term_bill.save()  # balance + status updated in TermBill.save()
+        except Exception:
+            pass  # Never block payment recording due to bill update failures
+
         return payment
 
 
@@ -135,3 +156,37 @@ class FeeCollectionReportSerializer(serializers.Serializer):
     total_amount_collected = serializers.DecimalField(max_digits=12, decimal_places=2)
     outstanding_balance = serializers.DecimalField(max_digits=12, decimal_places=2)
     payment_percentage = serializers.FloatField()
+
+
+class TermBillSerializer(serializers.ModelSerializer):
+    student_id = serializers.CharField(source='student.student_id', read_only=True)
+    student_name = serializers.SerializerMethodField()
+    class_level = serializers.CharField(source='student.current_class.level', read_only=True)
+    class_section = serializers.CharField(source='student.current_class.section', read_only=True)
+    fee_type_name = serializers.CharField(source='fee_type.name', read_only=True)
+    term_name = serializers.CharField(source='term.name', read_only=True)
+    academic_year_name = serializers.CharField(source='term.academic_year.name', read_only=True)
+
+    class Meta:
+        model = TermBill
+        fields = [
+            'id', 'student_id', 'student_name', 'class_level', 'class_section',
+            'fee_type', 'fee_type_name', 'term', 'term_name', 'academic_year_name',
+            'amount_billed', 'amount_paid', 'balance', 'status',
+            'due_date', 'notes', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['amount_paid', 'balance', 'status', 'created_at', 'updated_at']
+
+    def get_student_name(self, obj):
+        return f"{obj.student.user.first_name} {obj.student.user.last_name}"
+
+
+class GenerateBillsSerializer(serializers.Serializer):
+    """Input for bulk bill generation"""
+    term = serializers.IntegerField(help_text='Term ID to generate bills for')
+    fee_type = serializers.IntegerField(required=False, allow_null=True,
+                                        help_text='Specific fee type; omit to generate for all TERM/YEAR fee types')
+    overwrite = serializers.BooleanField(
+        default=False,
+        help_text='If True, update existing bills with new amounts; otherwise skip students already billed'
+    )

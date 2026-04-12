@@ -3,17 +3,37 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.db.models import Q, Sum, Count
-from .models import FeeType, FeeStructure, StudentFee, FeePayment, FeeCollection
+from .models import FeeType, FeeStructure, StudentFee, FeePayment, FeeCollection, TermBill
 from .serializers import (
     FeeTypeSerializer, FeeStructureSerializer, StudentFeeSerializer,
     FeePaymentSerializer, FeePaymentCreateSerializer, FeeCollectionSerializer,
-    StudentSearchSerializer, FeeCollectionReportSerializer
+    StudentSearchSerializer, FeeCollectionReportSerializer,
+    TermBillSerializer, GenerateBillsSerializer,
 )
 from students.models import Student
 from schools.models import Class
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Permission helper
+# ---------------------------------------------------------------------------
+
+def _can_collect(user, fee_type: FeeType) -> bool:
+    """Return True if this user is allowed to collect the given fee type."""
+    role = getattr(user, 'role', '')
+    if role in ('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'):
+        return True
+    if role == 'TEACHER':
+        if fee_type.allow_any_teacher_collection:
+            return True
+        if fee_type.allow_class_teacher_collection:
+            teacher = getattr(user, 'teacher', None)
+            if teacher and teacher.is_class_teacher_of.exists():
+                return True
+    return False
 
 
 class FeeTypeViewSet(viewsets.ModelViewSet):
@@ -129,16 +149,30 @@ class FeePaymentViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'])
     def collect_fee(self, request):
-        """Collect fee from student"""
+        """Collect fee from student — enforces collection permissions."""
+        # Resolve fee_type and check permission before any heavy work
+        fee_type_id = request.data.get('fee_type')
+        if fee_type_id:
+            try:
+                fee_type_obj = FeeType.objects.get(id=fee_type_id, school=request.user.school)
+            except FeeType.DoesNotExist:
+                return Response({'error': 'Fee type not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            if not _can_collect(request.user, fee_type_obj):
+                return Response(
+                    {'error': 'You do not have permission to collect this fee type.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
         serializer = FeePaymentCreateSerializer(
             data=request.data,
             context={'request': request}
         )
-        
+
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
-        
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['get'])
@@ -358,3 +392,166 @@ class FeeReportViewSet(viewsets.ViewSet):
             'fee_summary': list(fee_summary),
             'payment_status': list(payment_status)
         })
+
+
+# ---------------------------------------------------------------------------
+# Term Bills
+# ---------------------------------------------------------------------------
+
+class TermBillViewSet(viewsets.ModelViewSet):
+    """Manage pre-generated term/year fee bills."""
+    serializer_class = TermBillSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ['student__student_id', 'student__user__first_name', 'student__user__last_name']
+    ordering_fields = ['balance', 'status', 'amount_billed', 'updated_at']
+    ordering = ['-updated_at']
+
+    def get_queryset(self):
+        qs = TermBill.objects.filter(school=self.request.user.school).select_related(
+            'student__user', 'student__current_class', 'fee_type', 'term', 'term__academic_year'
+        )
+        term = self.request.query_params.get('term')
+        if term:
+            qs = qs.filter(term=term)
+        fee_type = self.request.query_params.get('fee_type')
+        if fee_type:
+            qs = qs.filter(fee_type=fee_type)
+        bill_status = self.request.query_params.get('status')
+        if bill_status:
+            qs = qs.filter(status=bill_status)
+        class_id = self.request.query_params.get('class_id')
+        if class_id:
+            qs = qs.filter(student__current_class_id=class_id)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(school=self.request.user.school, created_by=self.request.user)
+
+    @action(detail=False, methods=['post'])
+    def generate(self, request):
+        """
+        Bulk-generate TermBills for all students in the school.
+
+        Body:
+          { "term": <id>, "fee_type": <id|null>, "overwrite": false }
+
+        For each active student → look up FeeStructure for their class level + fee_type.
+        Creates a TermBill per (student, term, fee_type) combination.
+        If overwrite=True an existing bill's amount_billed is updated (amount_paid preserved).
+        """
+        serializer = GenerateBillsSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        school = request.user.school
+
+        # Authorisation: only admins and principals may generate bills
+        role = getattr(request.user, 'role', '')
+        if role not in ('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'):
+            return Response(
+                {'error': 'Only school admins or principals can generate fee bills.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Validate term belongs to this school
+        try:
+            from schools.models import Term
+            term = Term.objects.get(id=data['term'], academic_year__school=school)
+        except Term.DoesNotExist:
+            return Response({'error': 'Term not found for this school.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Determine which fee types to generate for
+        if data.get('fee_type'):
+            try:
+                fee_types = [FeeType.objects.get(id=data['fee_type'], school=school, is_active=True)]
+            except FeeType.DoesNotExist:
+                return Response({'error': 'Fee type not found.'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            # Only bill-able fee types (TERM or YEAR)
+            fee_types = list(FeeType.objects.filter(
+                school=school, is_active=True,
+                collection_frequency__in=['TERM', 'YEAR']
+            ))
+
+        if not fee_types:
+            return Response(
+                {'error': 'No eligible fee types found. Create TERM or YEAR fee types first.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        students = Student.objects.filter(
+            school=school, is_active=True
+        ).select_related('current_class')
+
+        created_count = 0
+        updated_count = 0
+        skipped_count = 0
+
+        for fee_type in fee_types:
+            for student in students:
+                if not student.current_class:
+                    skipped_count += 1
+                    continue
+
+                # Find fee structure for student's class level
+                structure = FeeStructure.objects.filter(
+                    school=school,
+                    fee_type=fee_type,
+                    level=student.current_class.level
+                ).first()
+
+                if not structure:
+                    skipped_count += 1
+                    continue
+
+                existing = TermBill.objects.filter(
+                    student=student, term=term, fee_type=fee_type
+                ).first()
+
+                if existing:
+                    if data.get('overwrite', False):
+                        existing.amount_billed = structure.amount
+                        existing.save()
+                        updated_count += 1
+                    else:
+                        skipped_count += 1
+                else:
+                    TermBill.objects.create(
+                        student=student,
+                        school=school,
+                        term=term,
+                        fee_type=fee_type,
+                        amount_billed=structure.amount,
+                        amount_paid=0,
+                        due_date=structure.due_date,
+                        created_by=request.user,
+                    )
+                    created_count += 1
+
+        return Response({
+            'created': created_count,
+            'updated': updated_count,
+            'skipped': skipped_count,
+            'message': (
+                f'{created_count} bills created, {updated_count} updated, '
+                f'{skipped_count} skipped (no fee structure or already exists).'
+            )
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """Summary of TermBills grouped by fee_type and status for a given term."""
+        term_id = request.query_params.get('term')
+        if not term_id:
+            return Response({'error': 'term parameter required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = self.get_queryset().filter(term=term_id)
+        summary = qs.values('fee_type__name', 'status').annotate(
+            count=Count('id'),
+            total_billed=Sum('amount_billed'),
+            total_paid=Sum('amount_paid'),
+            total_balance=Sum('balance'),
+        )
+        return Response(list(summary))

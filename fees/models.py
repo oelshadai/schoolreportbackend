@@ -9,15 +9,51 @@ User = get_user_model()
 
 class FeeType(models.Model):
     """Fee types/categories (Tuition, Canteen, Transport, etc.)"""
+
+    COLLECTION_FREQUENCY_CHOICES = [
+        ('DAILY', 'Daily (Every School Day)'),
+        ('WEEKLY', 'Weekly'),
+        ('MONTHLY', 'Monthly'),
+        ('TERM', 'Per Term'),
+        ('YEAR', 'Per Year'),
+    ]
+
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='fee_types')
-    name = models.CharField(max_length=100)  # e.g., "Tuition", "Canteen", "Transport"
+    name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
-    
+
+    # When this fee is collected
+    collection_frequency = models.CharField(
+        max_length=10,
+        choices=COLLECTION_FREQUENCY_CHOICES,
+        default='TERM',
+        help_text='How often this fee is charged'
+    )
+    # Day hint: for WEEKLY 0=Mon…6=Sun, for MONTHLY 1–31
+    collection_day = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text='Day of month (1-31) for MONTHLY, or day of week (0=Mon, 6=Sun) for WEEKLY'
+    )
+
+    # Who is allowed to collect this fee type
+    allow_class_teacher_collection = models.BooleanField(
+        default=False,
+        help_text='Class teachers may collect this fee for their own class'
+    )
+    allow_any_teacher_collection = models.BooleanField(
+        default=False,
+        help_text='Any teacher may collect this fee'
+    )
+    require_payment_approval = models.BooleanField(
+        default=False,
+        help_text='Each payment requires admin verification before it is finalised'
+    )
+
     class Meta:
         unique_together = ('school', 'name')
         ordering = ['name']
-    
+
     def __str__(self):
         return f"{self.name} - {self.school.name}"
 
@@ -166,3 +202,62 @@ class FeeCollection(models.Model):
     def __str__(self):
         collector = self.collected_by.get_full_name() if self.collected_by else "Unknown"
         return f"{collector} - {self.fee_type.name} ({self.collection_date.date()})"
+
+
+class TermBill(models.Model):
+    """
+    Pre-generated fee bill for a student for a specific term and fee type.
+    Used for TERM and YEAR frequency fees so students have a known amount
+    to pay against. Daily/monthly fees are recorded directly as payments.
+    """
+
+    BILL_STATUS_CHOICES = [
+        ('UNPAID', 'Not Paid'),
+        ('PARTIAL', 'Partially Paid'),
+        ('PAID', 'Fully Paid'),
+        ('WAIVED', 'Waived'),
+    ]
+
+    student = models.ForeignKey(
+        'students.Student', on_delete=models.CASCADE, related_name='term_bills'
+    )
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='term_bills')
+    term = models.ForeignKey(
+        'schools.Term', on_delete=models.CASCADE, related_name='fee_bills'
+    )
+    fee_type = models.ForeignKey(FeeType, on_delete=models.PROTECT, related_name='term_bills')
+    amount_billed = models.DecimalField(
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)]
+    )
+    amount_paid = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0, validators=[MinValueValidator(0)]
+    )
+    balance = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    due_date = models.DateField(null=True, blank=True)
+    status = models.CharField(
+        max_length=20, choices=BILL_STATUS_CHOICES, default='UNPAID'
+    )
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name='generated_bills'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('student', 'term', 'fee_type')
+        ordering = ['term', 'fee_type', 'student']
+
+    def save(self, *args, **kwargs):
+        self.balance = self.amount_billed - self.amount_paid
+        if self.status != 'WAIVED':
+            if self.amount_paid <= 0:
+                self.status = 'UNPAID'
+            elif self.balance > 0:
+                self.status = 'PARTIAL'
+            else:
+                self.status = 'PAID'
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.student.student_id} | {self.fee_type.name} | {self.term}"

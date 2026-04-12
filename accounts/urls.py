@@ -14,7 +14,7 @@ from .views import (
     LogoutView,
 )
 from .auth_views import (
-    teacher_login, admin_login, superadmin_login,
+    teacher_login, admin_login, superadmin_login, parent_login,
     teacher_dashboard, admin_dashboard, superadmin_dashboard,
     change_password
 )
@@ -65,6 +65,7 @@ urlpatterns = [
     path('teacher-login/', teacher_login, name='teacher_login'),
     path('admin-login/', admin_login, name='admin_login'),
     path('superadmin-login/', superadmin_login, name='superadmin_login'),
+    path('parent-login/', parent_login, name='parent_login'),
     path('teacher-dashboard/', teacher_dashboard, name='teacher_dashboard'),
     path('admin-dashboard/', admin_dashboard, name='admin_dashboard'),
     path('superadmin-dashboard/', superadmin_dashboard, name='superadmin_dashboard'),

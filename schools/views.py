@@ -7,7 +7,7 @@ from .serializers import (
     SchoolSerializer, AcademicYearSerializer, TermSerializer,
     ClassSerializer, SubjectSerializer, ClassSubjectSerializer,
     GradingScaleSerializer, BulkAssignmentSerializer, BulkRemovalSerializer,
-    SchoolSettingsSerializer
+    SchoolSettingsSerializer, ParentPortalSettingsSerializer, ParentPortalWriteSerializer,
 )
 from django.contrib.auth import get_user_model
 from students.models import Student
@@ -511,3 +511,408 @@ class SchoolSettingsView(APIView):
         
         print("Validation errors:", serializer.errors)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ---------------------------------------------------------------------------
+# Parent Portal Settings
+# ---------------------------------------------------------------------------
+
+class ParentPortalSettingsView(APIView):
+    """GET / PATCH the parent portal settings for the school."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _require_school_admin(self, user):
+        if not user.school:
+            return Response({'error': 'User not associated with a school.'}, status=status.HTTP_400_BAD_REQUEST)
+        if user.role not in ('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'):
+            return Response({'error': 'Only school admins can manage portal settings.'}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def get(self, request):
+        err = self._require_school_admin(request.user)
+        if err:
+            return err
+        return Response(ParentPortalSettingsSerializer(request.user.school).data)
+
+    def patch(self, request):
+        err = self._require_school_admin(request.user)
+        if err:
+            return err
+        serializer = ParentPortalWriteSerializer(
+            request.user.school, data=request.data, partial=True
+        )
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                'message': 'Parent portal settings saved.',
+                'data': ParentPortalSettingsSerializer(request.user.school).data,
+            })
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ---------------------------------------------------------------------------
+# Parent Account Management  (admin creates / lists / deletes parent accounts
+# and links them to students)
+# ---------------------------------------------------------------------------
+
+class ParentManagementViewSet(viewsets.ViewSet):
+    """Admin manages parent accounts and child links."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _require_admin(self, user):
+        if not user.school:
+            return Response({'error': 'Not associated with a school.'}, status=status.HTTP_400_BAD_REQUEST)
+        if user.role not in ('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'):
+            return Response({'error': 'Only school admins can manage parent accounts.'}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def list(self, request):
+        """List all parent accounts for this school."""
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        from accounts.models import ParentStudent, User as UserModel
+        parents = UserModel.objects.filter(school=request.user.school, role='PARENT').prefetch_related('children_links__student__user', 'children_links__student__current_class')
+        data = []
+        for p in parents:
+            children = []
+            for link in p.children_links.all():
+                s = link.student
+                children.append({
+                    'link_id': link.id,
+                    'student_id': s.student_id,
+                    'student_name': f"{s.user.first_name} {s.user.last_name}",
+                    'class': f"{s.current_class.level} {s.current_class.section}".strip() if s.current_class else '',
+                    'relationship': link.relationship,
+                    'is_primary_guardian': link.is_primary_guardian,
+                })
+            data.append({
+                'id': p.id,
+                'name': p.get_full_name(),
+                'email': p.email,
+                'phone_number': p.phone_number or '',
+                'is_active': p.is_active,
+                'children': children,
+            })
+        return Response(data)
+
+    @action(detail=False, methods=['post'])
+    def create_parent(self, request):
+        """Create a parent user account and optionally link to a student."""
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        from accounts.models import ParentStudent, User as UserModel
+
+        email = request.data.get('email', '').strip().lower()
+        first_name = request.data.get('first_name', '').strip()
+        last_name = request.data.get('last_name', '').strip()
+        phone = request.data.get('phone_number', '').strip()
+        password = request.data.get('password', '')
+        student_id = request.data.get('student_id', '').strip()
+        relationship = request.data.get('relationship', 'Guardian').strip()
+
+        if not email or not first_name or not last_name or not password:
+            return Response({'error': 'email, first_name, last_name and password are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if UserModel.objects.filter(email=email).exists():
+            return Response({'error': 'A user with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        parent = UserModel.objects.create_user(
+            email=email,
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
+            role='PARENT',
+            school=request.user.school,
+            phone_number=phone or None,
+        )
+
+        link = None
+        if student_id:
+            from students.models import Student
+            try:
+                student = Student.objects.get(student_id=student_id, school=request.user.school)
+                link = ParentStudent.objects.create(
+                    parent=parent,
+                    student=student,
+                    relationship=relationship,
+                    is_primary_guardian=True,
+                )
+            except Student.DoesNotExist:
+                pass  # Account created; link skipped — admin can add link separately
+
+        return Response({
+            'id': parent.id,
+            'name': parent.get_full_name(),
+            'email': parent.email,
+            'linked_student': link.student.student_id if link else None,
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'])
+    def link_child(self, request):
+        """Link an existing parent account to a student."""
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        from accounts.models import ParentStudent, User as UserModel
+        from students.models import Student
+
+        parent_id = request.data.get('parent_id')
+        student_id = request.data.get('student_id', '').strip()
+        relationship = request.data.get('relationship', 'Guardian')
+
+        try:
+            parent = UserModel.objects.get(id=parent_id, school=request.user.school, role='PARENT')
+        except UserModel.DoesNotExist:
+            return Response({'error': 'Parent not found.'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            student = Student.objects.get(student_id=student_id, school=request.user.school)
+        except Student.DoesNotExist:
+            return Response({'error': 'Student not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        link, created = ParentStudent.objects.get_or_create(
+            parent=parent, student=student,
+            defaults={'relationship': relationship}
+        )
+        if not created:
+            return Response({'error': 'This parent is already linked to that student.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({'message': f'Linked {parent.get_full_name()} to student {student_id}.', 'link_id': link.id})
+
+    @action(detail=False, methods=['delete'])
+    def unlink_child(self, request):
+        """Remove a parent–student link."""
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        from accounts.models import ParentStudent
+        link_id = request.data.get('link_id')
+        try:
+            link = ParentStudent.objects.get(id=link_id, parent__school=request.user.school)
+            link.delete()
+            return Response({'message': 'Link removed.'})
+        except ParentStudent.DoesNotExist:
+            return Response({'error': 'Link not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    def destroy(self, request, pk=None):
+        """Delete a parent user account."""
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        from accounts.models import User as UserModel
+        try:
+            parent = UserModel.objects.get(id=pk, school=request.user.school, role='PARENT')
+            parent.delete()
+            return Response({'message': 'Parent account deleted.'})
+        except UserModel.DoesNotExist:
+            return Response({'error': 'Parent not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['get'])
+    def students_without_parent(self, request):
+        """List students who have no parent account linked yet."""
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        from students.models import Student
+        from accounts.models import ParentStudent
+
+        linked_student_ids = ParentStudent.objects.filter(
+            parent__school=request.user.school
+        ).values_list('student_id', flat=True)
+
+        students = Student.objects.filter(
+            school=request.user.school, is_active=True
+        ).exclude(id__in=linked_student_ids).select_related('current_class')
+
+        data = []
+        for s in students:
+            data.append({
+                'id': s.id,
+                'student_id': s.student_id,
+                'name': f"{s.first_name} {s.last_name}".strip(),
+                'class': s.current_class.full_name if s.current_class else '',
+                'guardian_name': s.guardian_name or '',
+                'guardian_email': s.guardian_email or '',
+                'guardian_phone': s.guardian_phone or '',
+            })
+        return Response(data)
+
+    @action(detail=False, methods=['post'])
+    def create_for_student(self, request):
+        """Create a parent account from an existing student's guardian info."""
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        from accounts.models import ParentStudent, User as UserModel
+        from students.models import Student
+        import secrets
+        import string
+
+        student_id = request.data.get('student_id', '').strip()
+        override_email = request.data.get('email', '').strip().lower()
+        override_first = request.data.get('first_name', '').strip()
+        override_last = request.data.get('last_name', '').strip()
+        override_phone = request.data.get('phone_number', '').strip()
+        relationship = request.data.get('relationship', 'Guardian').strip()
+
+        if not student_id:
+            return Response({'error': 'student_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            student = Student.objects.get(student_id=student_id, school=request.user.school)
+        except Student.DoesNotExist:
+            return Response({'error': 'Student not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        email = override_email or (student.guardian_email or '').strip().lower()
+        if not email:
+            return Response(
+                {'error': 'No guardian email on file. Please edit the student to add one first.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        guardian_name = (student.guardian_name or '').strip()
+        parts = guardian_name.split(' ', 1)
+        first_name = override_first or (parts[0] if parts else '')
+        last_name = override_last or (parts[1] if len(parts) > 1 else '')
+        phone = override_phone or student.guardian_phone or ''
+
+        existing = UserModel.objects.filter(email=email).first()
+        if existing:
+            ParentStudent.objects.get_or_create(
+                parent=existing, student=student,
+                defaults={'relationship': relationship, 'is_primary_guardian': True}
+            )
+            return Response({
+                'message': 'Parent account already exists. Child linked.',
+                'parent_id': existing.id,
+                'email': existing.email,
+                'generated_password': None,
+            })
+
+        alphabet = string.ascii_letters + string.digits + '!@#$%'
+        raw_password = ''.join(secrets.choice(alphabet) for _ in range(12))
+
+        parent = UserModel.objects.create_user(
+            email=email,
+            password=raw_password,
+            first_name=first_name,
+            last_name=last_name,
+            role='PARENT',
+            school=request.user.school,
+            phone_number=phone or None,
+        )
+        ParentStudent.objects.create(
+            parent=parent, student=student,
+            relationship=relationship, is_primary_guardian=True,
+        )
+        return Response({
+            'message': 'Parent account created and linked.',
+            'parent_id': parent.id,
+            'email': parent.email,
+            'generated_password': raw_password,
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'])
+    def students_without_parent(self, request):
+        """List students who have no parent account linked yet."""
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        from students.models import Student
+        from accounts.models import ParentStudent
+
+        linked_student_ids = ParentStudent.objects.filter(
+            parent__school=request.user.school
+        ).values_list('student_id', flat=True)
+
+        students = Student.objects.filter(
+            school=request.user.school, is_active=True
+        ).exclude(id__in=linked_student_ids).select_related('current_class')
+
+        data = []
+        for s in students:
+            data.append({
+                'id': s.id,
+                'student_id': s.student_id,
+                'name': f"{s.first_name} {s.last_name}".strip(),
+                'class': s.current_class.full_name if s.current_class else '',
+                'guardian_name': s.guardian_name or '',
+                'guardian_email': s.guardian_email or '',
+                'guardian_phone': s.guardian_phone or '',
+            })
+        return Response(data)
+
+    @action(detail=False, methods=['post'])
+    def create_for_student(self, request):
+        """Create a parent account from an existing student's guardian info."""
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        from accounts.models import ParentStudent, User as UserModel
+        from students.models import Student
+        import secrets, string
+
+        student_id = request.data.get('student_id', '').strip()
+        # Allow override of guardian info if admin supplies it
+        override_email = request.data.get('email', '').strip().lower()
+        override_first = request.data.get('first_name', '').strip()
+        override_last = request.data.get('last_name', '').strip()
+        override_phone = request.data.get('phone_number', '').strip()
+        relationship = request.data.get('relationship', 'Guardian').strip()
+
+        if not student_id:
+            return Response({'error': 'student_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            student = Student.objects.get(student_id=student_id, school=request.user.school)
+        except Student.DoesNotExist:
+            return Response({'error': 'Student not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Resolve email and names (prefer override, fall back to student's guardian fields)
+        email = override_email or (student.guardian_email or '').strip().lower()
+        if not email:
+            return Response({'error': 'No guardian email on file and none provided. Please supply an email.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        guardian_name = (student.guardian_name or '').strip()
+        parts = guardian_name.split(' ', 1)
+        first_name = override_first or (parts[0] if parts else '')
+        last_name = override_last or (parts[1] if len(parts) > 1 else '')
+        phone = override_phone or student.guardian_phone or ''
+
+        existing = UserModel.objects.filter(email=email).first()
+        if existing:
+            # Email already has an account — just ensure the link exists
+            link, created = ParentStudent.objects.get_or_create(
+                parent=existing, student=student,
+                defaults={'relationship': relationship, 'is_primary_guardian': True}
+            )
+            return Response({
+                'message': 'Parent account already exists. Child linked.',
+                'parent_id': existing.id,
+                'email': existing.email,
+                'generated_password': None,
+            })
+
+        alphabet = string.ascii_letters + string.digits + '!@#$%'
+        raw_password = ''.join(secrets.choice(alphabet) for _ in range(12))
+
+        parent = UserModel.objects.create_user(
+            email=email,
+            password=raw_password,
+            first_name=first_name,
+            last_name=last_name,
+            role='PARENT',
+            school=request.user.school,
+            phone_number=phone or None,
+        )
+        ParentStudent.objects.create(
+            parent=parent, student=student,
+            relationship=relationship, is_primary_guardian=True,
+        )
+        return Response({
+            'message': 'Parent account created and linked.',
+            'parent_id': parent.id,
+            'email': parent.email,
+            'generated_password': raw_password,
+        }, status=status.HTTP_201_CREATED)

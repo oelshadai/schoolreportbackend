@@ -179,7 +179,7 @@ class TermResultViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'])
     def calculate_positions(self, request):
-        """Calculate class positions for all students in a term"""
+        """Calculate class positions (overall) and per-subject positions for all students in a term"""
         term_id = request.data.get('term_id')
         class_id = request.data.get('class_id')
         
@@ -189,7 +189,7 @@ class TermResultViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Get all term results for this class and term, ordered by total score
+        # --- Overall class positions ---
         term_results = TermResult.objects.filter(
             term_id=term_id,
             class_instance_id=class_id
@@ -197,11 +197,28 @@ class TermResultViewSet(viewsets.ModelViewSet):
         
         total_students = term_results.count()
         
-        # Assign positions
         for position, result in enumerate(term_results, start=1):
             result.class_position = position
             result.total_students = total_students
             result.save()
+        
+        # --- Per-subject positions ---
+        # Get all class_subject ids that belong to this class
+        from schools.models import ClassSubject
+        class_subject_ids = ClassSubject.objects.filter(
+            class_instance_id=class_id
+        ).values_list('id', flat=True)
+        
+        for cs_id in class_subject_ids:
+            # Rank students by their total score in this subject, highest first
+            subject_results = SubjectResult.objects.filter(
+                class_subject_id=cs_id,
+                term_id=term_id
+            ).order_by('-total_score')
+            
+            for pos, sr in enumerate(subject_results, start=1):
+                sr.position = pos
+                sr.save(update_fields=['position'])
         
         return Response({
             "message": f"Positions calculated for {total_students} students"

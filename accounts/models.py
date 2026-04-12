@@ -37,6 +37,7 @@ class User(AbstractUser):
         ('PRINCIPAL', 'Principal/Headmaster'),
         ('TEACHER', 'Teacher'),
         ('STUDENT', 'Student'),
+        ('PARENT', 'Parent/Guardian'),
     ]
     
     username = None
@@ -83,3 +84,39 @@ class User(AbstractUser):
     @property
     def is_student(self):
         return self.role == 'STUDENT'
+
+    @property
+    def is_parent(self):
+        return self.role == 'PARENT'
+
+
+class ParentStudent(models.Model):
+    """
+    Links a PARENT user to one or more Student records.
+    One parent can have multiple children; one student can have multiple guardian accounts.
+    """
+    parent = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='children_links',
+        limit_choices_to={'role': 'PARENT'},
+    )
+    student = models.ForeignKey(
+        'students.Student',
+        on_delete=models.CASCADE,
+        related_name='parent_links',
+    )
+    relationship = models.CharField(
+        max_length=50,
+        default='Guardian',
+        help_text='e.g. Mother, Father, Guardian',
+    )
+    is_primary_guardian = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('parent', 'student')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.parent.get_full_name()} → {self.student.student_id} ({self.relationship})"

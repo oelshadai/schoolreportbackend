@@ -1,4 +1,5 @@
-﻿<!DOCTYPE html>
+﻿{% load report_filters %}
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -346,94 +347,74 @@
                 </div>
                 
                 <div class="student-info">
-                    <table style="width:100%;border-collapse:collapse;">
-                        <tr>
-                            <!-- LEFT column -->
-                            <td style="width:{% if school.show_student_photos %}30{% else %}34{% endif %}%;vertical-align:top;padding-right:6px;">
-                                <div style="margin:1pt 0;font-size:9pt;font-weight:bold;">
-                                    NAME:
-                                </div>
-                                <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
-                                    {{ student.get_full_name|upper|default:"Sample Student" }}
-                                </div>
-                                <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">
-                                    ACADEMIC YEAR:
-                                </div>
-                                <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
-                                    {{ term.academic_year.name|default:"2023/2024" }}
-                                </div>
-                                <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">
-                                    CLASS TEACHER:
-                                </div>
-                                <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
-                                    {{ class_teacher_name|default:"—" }}
-                                </div>
-                            </td>
-                            <!-- CENTER column -->
-                            <td style="width:{% if school.show_student_photos %}30{% else %}34{% endif %}%;vertical-align:top;padding:0 6px;border-left:1px solid #ccc;border-right:1px solid #ccc;">
-                                <div style="margin:1pt 0;font-size:9pt;font-weight:bold;">
-                                    CLASS:
-                                </div>
-                                <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
-                                    {{ student.current_class.name|default:"BASIC 7A"|upper }}
-                                </div>
-                                <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">
-                                    TERM:
-                                </div>
-                                <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
-                                    {{ term.name|upper|default:"THREE (3)" }}
-                                </div>
-                                <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">
-                                    CLOSING DATE:
-                                </div>
-                                <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
-                                    {% if school.term_closing_date %}{{ school.term_closing_date }}{% else %}—{% endif %}
-                                </div>
-                            </td>
-                            <!-- RIGHT column -->
-                            <td style="width:{% if school.show_student_photos %}22{% else %}32{% endif %}%;vertical-align:top;padding-left:6px;">
-                                <div style="margin:1pt 0;font-size:9pt;font-weight:bold;">
-                                    CLASS NO:
-                                </div>
-                                <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
-                                    {{ student.student_id|default:"—" }}
-                                </div>
-                                {% if school.show_position_in_class %}
-                                <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">
-                                    POSITION:
-                                </div>
-                                <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
-                                    {% if term_result.class_position %}{{ term_result.class_position }}{% else %}—{% endif %} / {% if term_result.total_students %}{{ term_result.total_students }}{% else %}—{% endif %}
-                                </div>
-                                {% else %}
-                                <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">&nbsp;</div>
-                                <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">&nbsp;</div>
-                                {% endif %}
-                                <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">
-                                    REOPENING DATE:
-                                </div>
-                                <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
-                                    {% if school.term_reopening_date %}{{ school.term_reopening_date }}{% else %}—{% endif %}
-                                </div>
-                            </td>
-                            <!-- PHOTO column (conditional) -->
-                            {% if school.show_student_photos %}
-                            <td style="width:18%;text-align:center;vertical-align:middle;padding-left:6px;">
-                                <div style="width:55pt;height:70pt;border:1pt solid #000;background:white;display:inline-block;text-align:center;font-size:6pt;line-height:70pt;overflow:hidden;">
-                                    {% if student.photo %}
-                                        {% if student_photo_absolute %}
-                                            <img src="{{ student_photo_absolute }}" alt="{{ student.get_full_name }}" style="width:100%;height:100%;object-fit:cover;">
-                                        {% else %}
-                                            <img src="{{ media_url_base }}{{ student.photo.url }}" alt="{{ student.get_full_name }}" style="width:100%;height:100%;object-fit:cover;">
-                                        {% endif %}
-                                    {% else %}
-                                        STUDENT<br>PHOTO
-                                    {% endif %}
-                                </div>
-                            </td>
+                    <div style="display:flex;width:100%;gap:0;">
+                        <!-- LEFT column -->
+                        <div style="flex:{% if school.show_student_photos %}3{% else %}1{% endif %};padding-right:8px;">
+                            <div style="margin:1pt 0;font-size:9pt;font-weight:bold;">NAME:</div>
+                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                                {{ student.get_full_name|upper|default:"Sample Student" }}
+                            </div>
+                            <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">ACADEMIC YEAR:</div>
+                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                                {{ term.academic_year.name|default:"2023/2024" }}
+                            </div>
+                            <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">CLASS TEACHER:</div>
+                            <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                                {{ class_teacher_name|default:"—" }}
+                            </div>
+                        </div>
+                        <!-- CENTER column -->
+                        <div style="flex:{% if school.show_student_photos %}3{% else %}1{% endif %};padding:0 8px;border-left:1px solid #ccc;border-right:1px solid #ccc;">
+                            <div style="margin:1pt 0;font-size:9pt;font-weight:bold;">CLASS:</div>
+                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                                {{ student.current_class.name|default:"BASIC 7A"|upper }}
+                            </div>
+                            <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">TERM:</div>
+                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                                {{ term.name|upper|default:"THREE (3)" }}
+                            </div>
+                            <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">CLOSING DATE:</div>
+                            <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                                {% if school.term_closing_date %}{{ school.term_closing_date }}{% else %}—{% endif %}
+                            </div>
+                        </div>
+                        <!-- RIGHT column -->
+                        <div style="flex:{% if school.show_student_photos %}3{% else %}1{% endif %};padding:0 8px;">
+                            <div style="margin:1pt 0;font-size:9pt;font-weight:bold;">CLASS NO:</div>
+                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                                {{ student.student_id|default:"—" }}
+                            </div>
+                            {% if school.show_position_in_class %}
+                            <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">POSITION:</div>
+                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                                {% if term_result.class_position %}{{ term_result.class_position|ordinal }}{% else %}—{% endif %}
+                            </div>
+                            {% else %}
+                            <div style="margin:3pt 0 1pt;font-size:9pt;">&nbsp;</div>
+                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">&nbsp;</div>
                             {% endif %}
-                        </tr>
-                    </table>
+                            <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">REOPENING DATE:</div>
+                            <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                                {% if school.term_reopening_date %}{{ school.term_reopening_date }}{% else %}—{% endif %}
+                            </div>
+                        </div>
+                        <!-- PHOTO column (conditional) -->
+                        {% if school.show_student_photos %}
+                        <div style="flex:2;padding-left:8px;display:flex;align-items:center;justify-content:center;">
+                            <div style="width:55pt;height:70pt;border:1pt solid #000;background:white;text-align:center;font-size:6pt;line-height:70pt;overflow:hidden;">
+                                {% if student.photo %}
+                                    {% if student_photo_absolute %}
+                                        <img src="{{ student_photo_absolute }}" alt="{{ student.get_full_name }}" style="width:100%;height:100%;object-fit:cover;">
+                                    {% else %}
+                                        <img src="{{ media_url_base }}{{ student.photo.url }}" alt="{{ student.get_full_name }}" style="width:100%;height:100%;object-fit:cover;">
+                                    {% endif %}
+                                {% else %}
+                                    STUDENT<br>PHOTO
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
                 </div>
             </td>
         </tr>
@@ -468,15 +449,7 @@
                                     <td>{{ subject_result.exam_score|floatformat:1|default:"-" }}</td>
                                     <td>{{ subject_result.total_score|floatformat:1|default:"-" }}</td>
                                     {% if school.show_position_in_class %}<td>
-                                        {% if subject_result.position %}
-                                            {% with pos=subject_result.position %}
-                                                {% if pos|add:"0"|stringformat:"s"|slice:"-1" == "1" and pos != 11 %}{{ pos }}st
-                                                {% elif pos|add:"0"|stringformat:"s"|slice:"-1" == "2" and pos != 12 %}{{ pos }}nd
-                                                {% elif pos|add:"0"|stringformat:"s"|slice:"-1" == "3" and pos != 13 %}{{ pos }}rd
-                                                {% else %}{{ pos }}th
-                                                {% endif %}
-                                            {% endwith %}
-                                        {% else %}-{% endif %}
+                                        {% if subject_result.position %}{{ subject_result.position|ordinal }}{% else %}-{% endif %}
                                     </td>{% endif %}
                                     <td>{{ subject_result.grade|default:"-" }}</td>
                                 </tr>

@@ -190,6 +190,36 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             'class_average_total': 0,
         }
 
+    @action(detail=False, methods=['get'])
+    def preview_report(self, request):
+        """Preview report HTML for a student/term using saved DB scores.
+        Called by the teacher/admin frontend to render the report in an iframe.
+        """
+        student_id = request.query_params.get('student_id')
+        term_id = request.query_params.get('term_id')
+
+        if not student_id or not term_id:
+            return Response({'error': 'student_id and term_id are required'}, status=400)
+
+        try:
+            # Students can only preview their own report; staff can preview any in their school
+            if getattr(request.user, 'role', None) == 'STUDENT':
+                student = Student.objects.get(id=student_id, user=request.user)
+            else:
+                student = Student.objects.get(id=student_id, school=request.user.school)
+            term = Term.objects.get(id=term_id)
+
+            context = self._get_report_context(student, term, request)
+            from django.shortcuts import render
+            return render(request, 'reports/terminal_report.html', context)
+
+        except Student.DoesNotExist:
+            return Response({'error': 'Student not found'}, status=404)
+        except Term.DoesNotExist:
+            return Response({'error': 'Term not found'}, status=404)
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+
     @action(detail=False, methods=['post'])
     def generate_pdf_report(self, request):
         """Generate PDF report using the EXACT same context and template as preview"""
@@ -1732,35 +1762,43 @@ def template_preview_public(request):
                 from schools.models import ClassSubject, Term
                 from students.models import Student, Attendance, Behaviour
                 
-                # Parse the current scores (may be empty if user cleared them)
+                # Parse the current scores (unsaved scores from the form)
                 current_scores = json.loads(unquote(current_scores_param))
                 
                 # Get the actual student and term
                 student = Student.objects.get(id=student_id, school=school)
                 term = Term.objects.get(id=term_id)
                 
-                # If current_scores is empty, load from database instead
+                # Always load existing saved scores from DB first, then overlay current (unsaved) scores.
+                # This ensures already-saved subjects are included even when the teacher is previewing
+                # a different subject in single-subject entry mode.
+                from scores.models import SubjectResult
+                db_results = SubjectResult.objects.filter(
+                    student=student, term=term
+                ).select_related('class_subject__subject')
+                
+                merged_scores = {}
+                for sr in db_results:
+                    merged_scores[str(sr.class_subject_id)] = {
+                        'task': 0, 'homework': 0, 'group_work': 0,
+                        'project_work': 0, 'class_test': float(sr.ca_score),
+                        'exam_score': float(sr.exam_score),
+                        '_ca_override': float(sr.ca_score),
+                    }
+                
+                # Overlay unsaved current scores (these take priority over DB)
+                for k, v in current_scores.items():
+                    merged_scores[str(k)] = v
+                
+                current_scores = merged_scores
+                
                 if not current_scores:
-                    from scores.models import SubjectResult
-                    db_results = SubjectResult.objects.filter(
-                        student=student, term=term
-                    ).select_related('class_subject__subject')
-                    
-                    if not db_results.exists():
-                        return HttpResponse(
-                            '<div style="padding:20px; text-align:center; font-family:Arial,sans-serif;"'
-                            '><h3>No Scores Available</h3>'
-                            '<p>No scores have been entered for this student yet.</p></div>',
-                            status=200
-                        )
-                    
-                    for sr in db_results:
-                        current_scores[str(sr.class_subject_id)] = {
-                            'task': 0, 'homework': 0, 'group_work': 0,
-                            'project_work': 0, 'class_test': float(sr.ca_score),
-                            'exam_score': float(sr.exam_score),
-                            '_ca_override': float(sr.ca_score),
-                        }
+                    return HttpResponse(
+                        '<div style="padding:20px; text-align:center; font-family:Arial,sans-serif;"'
+                        '><h3>No Scores Available</h3>'
+                        '<p>No scores have been entered for this student yet.</p></div>',
+                        status=200
+                    )
                 
                 # Create subject results from current scores
                 MockSubjectResult = namedtuple('MockSubjectResult', [
@@ -1809,13 +1847,26 @@ def template_preview_public(request):
                         mock_subject = MockSubject(name=class_subject.subject.name)
                         mock_class_subject = MockClassSubject(subject=mock_subject)
                         
+                        # Calculate real subject position: count students in the same
+                        # class_subject/term with a higher total_score than this student.
+                        from scores.models import SubjectResult as SR
+                        higher_count = SR.objects.filter(
+                            class_subject_id=class_subject_id,
+                            term_id=term_id
+                        ).exclude(
+                            student_id=student_id
+                        ).filter(
+                            total_score__gt=total_score
+                        ).count()
+                        subject_position = higher_count + 1
+                        
                         subject_results.append(MockSubjectResult(
                             class_subject=mock_class_subject,
                             ca_score=class_score,
                             exam_score=exam_score,
                             total_score=total_score,
                             grade=grade,
-                            position=1  # Default for preview
+                            position=subject_position
                         ))
                         
                         total_scores_sum += total_score

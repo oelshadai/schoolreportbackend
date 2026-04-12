@@ -55,55 +55,54 @@ elif action == 'tables':
         print(f'  {t}')
 
 elif action == 'wipe':
-    # Delete ALL app data in FK-safe order (children before parents)
-    # Skips Django system tables: auth_*, django_*, which are needed for the app to run
+    # Delete ALL application data in FK-safe order (children before parents)
     ordered = [
-        # Assignment/quiz/task leaf tables
+        # Assignment / quiz children
         'submission_files', 'quiz_answer_files', 'quiz_answers', 'quiz_attempts',
         'task_answers', 'task_attempts', 'task_questions', 'timed_tasks',
-        'question_files', 'question_options', 'questions',
-        'student_assignments', 'assignment_attempts', 'assignments',
+        'assignment_attempts', 'student_assignments',
+        'question_files', 'question_options', 'questions', 'assignments',
         # Scores / reports
         'continuous_assessments', 'exam_scores',
         'subject_results', 'term_results',
         'report_cards',
         # Attendance / behaviour
         'daily_attendance', 'attendance', 'behaviour',
-        # Student extras
-        'student_promotions', 'student_portal_access',
-        'profile_change_requests',
         # Fees
         'fees_studentfee', 'fees_feepayment', 'fees_feecollection',
         'fees_feestructure', 'fees_feetype',
+        # Students
+        'student_portal_access', 'student_promotions', 'students',
+        # Classes / curriculum
+        'class_subjects', 'subjects', 'grading_scales',
+        'lesson_slots', 'classes',
+        'terms', 'academic_years',
         # Notifications / events / announcements
         'notifications_notification', 'notifications_supportticket',
         'events_event', 'announcements',
-        # Finance
-        'payments', 'subscriptions', 'subscription_plans',
-        # Students & teachers (before classes/schools)
-        'students', 'teachers_specializations', 'teachers',
-        # Timetable / curriculum
-        'lesson_slots', 'class_subjects', 'subjects',
-        'grading_scales',
-        # Classes / terms / years
-        'classes', 'terms', 'academic_years',
-        # Users (before schools)
-        'users_groups', 'users_user_permissions', 'users',
+        # Profile / payments
+        'profile_change_requests', 'payments',
+        'subscriptions', 'subscription_plans',
+        # Teachers
+        'teachers_specializations', 'teachers',
+        # Auth / users
+        'users_groups', 'users_user_permissions',
+        'django_admin_log', 'django_session',
+        'users',
         # School last
         'schools',
     ]
-    total = 0
+    wiped = 0
     for table in ordered:
         try:
             cur.execute(f'DELETE FROM "{table}"')
             conn.commit()
             if cur.rowcount:
-                print(f'  [{table}]: {cur.rowcount} rows deleted')
-                total += cur.rowcount
-        except Exception as e:
+                print(f'  Cleared [{table}]: {cur.rowcount} rows')
+                wiped += cur.rowcount
+        except Exception:
             conn.rollback()
-    print(f'\nDone. {total} total rows deleted across all tables.')
-    print('Database is now empty — go register your school fresh.')
+    print(f'\nDone. Wiped {wiped} total rows. Database is completely empty.')
 
 elif action == 'wipe_users_only':
     cur.execute('DELETE FROM accounts_user')

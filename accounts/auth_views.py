@@ -216,6 +216,66 @@ def superadmin_login(request):
         return Response({'error': 'Internal server error'}, status=500)
 
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def parent_login(request):
+    """Parent/Guardian login endpoint"""
+    try:
+        email = request.data.get('email')
+        password = request.data.get('password')
+
+        if not email or not password:
+            return Response({'error': 'Email and password required'}, status=400)
+
+        email = str(email).strip().lower()
+
+        try:
+            user = User.objects.get(email=email, is_active=True)
+        except User.DoesNotExist:
+            return Response({'error': 'Invalid credentials'}, status=401)
+
+        if user.role != 'PARENT':
+            return Response({'error': 'Invalid credentials'}, status=401)
+
+        if not user.check_password(password):
+            return Response({'error': 'Invalid credentials'}, status=401)
+
+        try:
+            refresh = RefreshToken.for_user(user)
+        except Exception as e:
+            logger.error(f"Token generation error for {email}: {str(e)}")
+            return Response({'error': 'Token generation failed'}, status=500)
+
+        # Get linked children
+        from accounts.models import ParentStudent
+        children = []
+        for link in ParentStudent.objects.filter(parent=user).select_related('student'):
+            children.append({
+                'student_id': link.student.student_id,
+                'name': f"{link.student.first_name} {link.student.last_name}",
+                'relationship': link.relationship,
+            })
+
+        return Response({
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'first_name': user.first_name or '',
+                'last_name': user.last_name or '',
+                'role': user.role,
+                'phone_number': user.phone_number or '',
+                'school': {'id': user.school.id, 'name': user.school.name} if user.school else None,
+                'children': children,
+            }
+        }, status=200)
+
+    except Exception as e:
+        logger.exception(f"Parent login error: {str(e)}")
+        return Response({'error': 'Internal server error'}, status=500)
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def teacher_dashboard(request):

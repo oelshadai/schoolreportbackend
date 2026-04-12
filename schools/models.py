@@ -123,6 +123,32 @@ class School(models.Model):
     is_active = models.BooleanField(default=True)
     subscription_plan = models.CharField(max_length=50, default='FREE')
     subscription_expires = models.DateField(null=True, blank=True)
+
+    # ---------------------------------------------------------------
+    # Parent Portal Settings
+    # ---------------------------------------------------------------
+    parent_portal_enabled = models.BooleanField(
+        default=False,
+        help_text='Master switch — when off, no parent can log in'
+    )
+    parent_can_view_grades = models.BooleanField(default=True)
+    parent_can_view_attendance = models.BooleanField(default=True)
+    parent_can_view_fees = models.BooleanField(default=True)
+    parent_can_view_reports = models.BooleanField(default=True)
+    parent_can_pay_fees_online = models.BooleanField(
+        default=False,
+        help_text='Allow parents to initiate online fee payments via Paystack'
+    )
+    parent_can_message_teachers = models.BooleanField(default=False)
+    parent_support_email = models.EmailField(blank=True, default='')
+    paystack_public_key = models.CharField(
+        max_length=100, blank=True,
+        help_text='Your Paystack public key (pk_live_... or pk_test_...)'
+    )
+    paystack_secret_key = models.CharField(
+        max_length=100, blank=True,
+        help_text='Your Paystack secret key — kept server-side only'
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
