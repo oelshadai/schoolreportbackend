@@ -132,6 +132,36 @@ class ClassViewSet(viewsets.ModelViewSet):
         serializer = StudentSerializer(students, many=True)
         return Response(serializer.data)
     
+    @action(detail=True, methods=['post'])
+    def assign_teacher(self, request, pk=None):
+        """Assign or unassign a class teacher directly (bypasses full serializer validation)"""
+        class_obj = self.get_object()
+        teacher_user_id = request.data.get('teacher_user_id')
+
+        if teacher_user_id is None:
+            # Unassign
+            class_obj.class_teacher = None
+            class_obj.save(update_fields=['class_teacher'])
+            return Response({'status': 'teacher unassigned', 'class_id': class_obj.id})
+
+        # Validate the user exists and is a TEACHER in the same school
+        try:
+            teacher_user = User.objects.get(pk=teacher_user_id, role='TEACHER', school=class_obj.school)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'No active teacher with that ID found in this school'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        class_obj.class_teacher = teacher_user
+        class_obj.save(update_fields=['class_teacher'])
+        return Response({
+            'status': 'teacher assigned',
+            'class_id': class_obj.id,
+            'teacher_user_id': teacher_user.id,
+            'teacher_name': teacher_user.get_full_name(),
+        })
+
     @action(detail=False, methods=['get'])
     def by_level(self, request):
         """Get classes filtered by level group (primary/jhs)"""
