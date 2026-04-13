@@ -20,6 +20,14 @@ from .auth_views import (
 )
 from .password_views import forgot_password, reset_password_admin, confirm_reset_password, emergency_reset, emergency_list_users, emergency_wipe_users
 from students.auth_views import student_login
+from .superadmin_views import (
+    superadmin_schools, superadmin_school_detail,
+    superadmin_users, superadmin_user_update,
+    superadmin_subscriptions, superadmin_subscription_create,
+    superadmin_subscription_extend, superadmin_subscription_update,
+    superadmin_analytics,
+    superadmin_plans, superadmin_plan_detail,
+)
 
 @ensure_csrf_cookie
 def csrf_token_view(request):
@@ -85,4 +93,17 @@ urlpatterns = [
     path('emergency-list-users/', emergency_list_users, name='emergency_list_users'),
     path('emergency-wipe-users/', emergency_wipe_users, name='emergency_wipe_users'),
     path('db-check/', db_check_view, name='db_check'),
+
+    # ── Super Admin SaaS Management ──────────────────────────────
+    path('superadmin/schools/', superadmin_schools, name='superadmin_schools'),
+    path('superadmin/schools/<int:school_id>/', superadmin_school_detail, name='superadmin_school_detail'),
+    path('superadmin/users/', superadmin_users, name='superadmin_users'),
+    path('superadmin/users/<int:user_id>/', superadmin_user_update, name='superadmin_user_update'),
+    path('superadmin/subscriptions/', superadmin_subscriptions, name='superadmin_subscriptions'),
+    path('superadmin/subscriptions/create/', superadmin_subscription_create, name='superadmin_subscription_create'),
+    path('superadmin/subscriptions/<int:sub_id>/extend/', superadmin_subscription_extend, name='superadmin_subscription_extend'),
+    path('superadmin/subscriptions/<int:sub_id>/', superadmin_subscription_update, name='superadmin_subscription_update'),
+    path('superadmin/analytics/', superadmin_analytics, name='superadmin_analytics'),
+    path('superadmin/plans/', superadmin_plans, name='superadmin_plans'),
+    path('superadmin/plans/<int:plan_id>/', superadmin_plan_detail, name='superadmin_plan_detail'),
 ]
