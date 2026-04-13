@@ -17,16 +17,15 @@ def simple_teacher_assignments(request):
         assignments = []
         
         # Check if user has school
-        if not hasattr(user, 'school') or not user.school:
+        school_id = user.school_id
+        if not school_id:
             logger.warning(f"User {user.email} has no school assigned")
             return Response([])
-        
-        logger.info(f"User school: {user.school.name}")
         
         # Try to get class assignments safely
         try:
             from schools.models import Class
-            classes = Class.objects.filter(school=user.school, class_teacher=user)
+            classes = Class.objects.filter(school_id=school_id, class_teacher=user)
             logger.info(f"Found {classes.count()} classes for teacher {user.email}")
             for cls in classes:
                 assignments.append({
@@ -47,7 +46,7 @@ def simple_teacher_assignments(request):
         # Try to get subject assignments safely
         try:
             from schools.models import ClassSubject
-            subjects = ClassSubject.objects.filter(teacher=user, class_instance__school=user.school)
+            subjects = ClassSubject.objects.filter(teacher=user, class_instance__school_id=school_id)
             logger.info(f"Found {subjects.count()} subject assignments for teacher {user.email}")
             for subj in subjects:
                 assignments.append({

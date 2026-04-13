@@ -28,11 +28,12 @@ class TeacherAttendanceViewSet(viewsets.ViewSet):
     def my_classes(self, request):
         """Get classes assigned to current teacher"""
         user = request.user
-        if not hasattr(user, 'school') or not user.school:
+        school_id = user.school_id
+        if not school_id:
             return Response({'classes': []})
 
         today = date.today()
-        classes = Class.objects.filter(school=user.school, class_teacher=user)
+        classes = Class.objects.filter(school_id=school_id, class_teacher=user)
 
         classes_data = []
         for cls in classes:

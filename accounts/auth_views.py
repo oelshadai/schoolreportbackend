@@ -283,7 +283,7 @@ def teacher_dashboard(request):
     try:
         from teachers.models import Teacher
         try:
-            teacher = Teacher.objects.select_related('user', 'school').get(user=request.user)
+            teacher = Teacher.objects.select_related('user').get(user=request.user)
         except Teacher.DoesNotExist:
             return Response({'error': 'Teacher profile not found'}, status=404)
 
@@ -291,10 +291,11 @@ def teacher_dashboard(request):
         try:
             # Direct query to ensure we get the correct classes
             from schools.models import Class
+            school_id = teacher.school_id or request.user.school_id
             assigned_classes = Class.objects.filter(
                 class_teacher=request.user,
-                school=teacher.school
-            ).select_related('school')
+                school_id=school_id
+            )
             
             logger.info(f"Teacher {teacher.id} ({teacher.user.email}) - Found {assigned_classes.count()} assigned classes")
             
