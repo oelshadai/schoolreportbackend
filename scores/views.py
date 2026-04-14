@@ -303,7 +303,20 @@ class ScoreManagementViewSet(viewsets.ViewSet):
                 
                 # Calculate total and assign grade
                 subject_result.calculate_total()
-            
+
+                # Auto-update TermResult so scores appear on the student's report immediately
+                _student = Student.objects.select_related('current_class').get(id=data['student_id'])
+                if _student.current_class:
+                    term_result, _ = TermResult.objects.get_or_create(
+                        student_id=data['student_id'],
+                        term_id=data['term_id'],
+                        defaults={'class_instance': _student.current_class}
+                    )
+                    if not term_result.class_instance_id:
+                        term_result.class_instance = _student.current_class
+                        term_result.save(update_fields=['class_instance'])
+                    term_result.calculate_aggregate()
+
             return Response({
                 "message": "Scores entered successfully",
                 "total_score": float(subject_result.total_score),

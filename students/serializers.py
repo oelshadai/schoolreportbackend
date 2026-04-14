@@ -34,6 +34,8 @@ class StudentCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating students with security validation"""
     generated_password = serializers.CharField(read_only=True)
     generated_username = serializers.CharField(read_only=True)
+    parent_account_created = serializers.BooleanField(read_only=True, default=False)
+    parent_generated_password = serializers.CharField(read_only=True, allow_null=True, default=None)
     
     class Meta:
         model = Student
@@ -59,6 +61,56 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         # Return the generated credentials in the response
         student.generated_password = student.password
         student.generated_username = student.username
+
+        # ── Auto-create parent account from guardian info ──────────────────
+        guardian_email = student.guardian_email
+        if guardian_email:
+            try:
+                from django.contrib.auth import get_user_model
+                from accounts.models import ParentStudent
+                import secrets, string
+
+                UserModel = get_user_model()
+
+                # Parse guardian_name → first / last
+                guardian_name = (student.guardian_name or '').strip()
+                parts = guardian_name.split(' ', 1)
+                g_first = parts[0] if parts else guardian_name
+                g_last = parts[1] if len(parts) > 1 else ''
+
+                existing = UserModel.objects.filter(email=guardian_email).first()
+                if existing:
+                    # User already exists — just ensure the link exists
+                    parent = existing
+                    student.parent_account_created = False
+                    student.parent_generated_password = None
+                else:
+                    # Generate a secure random password
+                    alphabet = string.ascii_letters + string.digits + '!@#$%'
+                    raw_password = ''.join(secrets.choice(alphabet) for _ in range(12))
+
+                    parent = UserModel.objects.create_user(
+                        email=guardian_email,
+                        password=raw_password,
+                        first_name=g_first,
+                        last_name=g_last,
+                        role='PARENT',
+                        school=student.school,
+                        phone_number=student.guardian_phone or None,
+                    )
+                    student.parent_account_created = True
+                    student.parent_generated_password = raw_password
+
+                # Create or update the parent–student link
+                ParentStudent.objects.get_or_create(
+                    parent=parent,
+                    student=student,
+                    defaults={'relationship': 'Guardian', 'is_primary_guardian': True},
+                )
+            except Exception:
+                # Never let parent creation failure block student creation
+                pass
+
         return student
 
 
