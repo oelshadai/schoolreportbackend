@@ -23,3 +23,6 @@ python manage.py migrate --noinput
 
 # Fix any students that are missing user accounts
 python manage.py fix_student_users || true
+
+# Ensure super admin user exists in production
+python manage.py seed_production || true
