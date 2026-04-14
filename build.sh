@@ -26,3 +26,19 @@ python manage.py fix_student_users || true
 
 # Ensure super admin user exists in production
 python manage.py seed_production || true
+
+# Guarantee SUPER_ADMIN user exists regardless of seed outcome
+python manage.py shell -c "
+from django.contrib.auth import get_user_model
+User = get_user_model()
+user, created = User.objects.get_or_create(email='admin@example.com')
+user.role = 'SUPER_ADMIN'
+user.is_active = True
+user.is_staff = True
+user.is_superuser = True
+user.first_name = 'Admin'
+user.last_name = 'User'
+user.set_password('Nanama22.')
+user.save()
+print('SUPER_ADMIN: ' + ('created' if created else 'updated') + ' — admin@example.com')
+"
