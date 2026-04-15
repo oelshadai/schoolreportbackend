@@ -23,6 +23,16 @@ class FeeType(models.Model):
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
 
+    # Sub-fee hierarchy: if set, this FeeType is a sub-type of the parent
+    parent_fee_type = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='sub_types',
+        help_text='If set, this is a sub-fee type under the parent fee type.',
+    )
+
     # When this fee is collected
     collection_frequency = models.CharField(
         max_length=10,
@@ -59,10 +69,16 @@ class FeeType(models.Model):
 
 
 class FeeStructure(models.Model):
-    """Fee amount per class/level and fee type"""
+    """Fee amount per class/level and fee type, with optional tier differentiation"""
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='fee_structures')
     fee_type = models.ForeignKey(FeeType, on_delete=models.CASCADE, related_name='structures')
     level = models.CharField(max_length=20)  # Class level (BASIC_1, BASIC_2, etc.)
+    tier_label = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        help_text='Optional tier name (e.g. Bus Users, Non-Bus Users). Leave empty for all students.',
+    )
     amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
     collection_period = models.CharField(
         max_length=20,
@@ -76,11 +92,12 @@ class FeeStructure(models.Model):
     due_date = models.DateField(null=True, blank=True)  # Optional due date for this fee
     
     class Meta:
-        unique_together = ('school', 'fee_type', 'level')
-        ordering = ['fee_type', 'level']
+        unique_together = ('school', 'fee_type', 'level', 'tier_label')
+        ordering = ['fee_type', 'level', 'tier_label']
     
     def __str__(self):
-        return f"{self.fee_type.name} - {self.level}: {self.amount}"
+        tier = f" [{self.tier_label}]" if self.tier_label else ""
+        return f"{self.fee_type.name} - {self.level}{tier}: {self.amount}"
 
 
 class StudentFee(models.Model):
@@ -261,3 +278,47 @@ class TermBill(models.Model):
 
     def __str__(self):
         return f"{self.student.student_id} | {self.fee_type.name} | {self.term}"
+
+
+class StudentFeeSubType(models.Model):
+    """
+    Assigns a student to a specific sub-fee type for a main fee type.
+
+    Example:
+        Main fee type:  Canteen Fee
+        Sub-type A:     Bus Users Fee  (amount 100)
+        Sub-type B:     Normal Fee     (amount 60)
+
+    A student assigned to sub_fee_type=B will be billed GH₵60.
+    Students with no assignment for a main fee type are not billed for that fee.
+    """
+    student = models.ForeignKey(
+        'students.Student',
+        on_delete=models.CASCADE,
+        related_name='fee_sub_type_assignments',
+    )
+    main_fee_type = models.ForeignKey(
+        FeeType,
+        on_delete=models.CASCADE,
+        related_name='student_sub_assignments',
+        help_text='The top-level (parent) fee type.',
+    )
+    sub_fee_type = models.ForeignKey(
+        FeeType,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='assigned_students',
+        help_text='The sub-fee type assigned to this student. Null = none assigned.',
+    )
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='student_fee_sub_types')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('student', 'main_fee_type')
+        ordering = ['student', 'main_fee_type']
+
+    def __str__(self):
+        sub = self.sub_fee_type.name if self.sub_fee_type else 'Unassigned'
+        return f"{self.student.student_id} → {self.main_fee_type.name} [{sub}]"

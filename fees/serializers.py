@@ -1,12 +1,22 @@
 from rest_framework import serializers
-from .models import FeeType, FeeStructure, StudentFee, FeePayment, FeeCollection, TermBill
+from .models import FeeType, FeeStructure, StudentFee, FeePayment, FeeCollection, TermBill, StudentFeeSubType
 from students.models import Student
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
 
+class SubFeeTypeSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for sub-fee types (nested inside FeeTypeSerializer)."""
+    class Meta:
+        model = FeeType
+        fields = ['id', 'name', 'description', 'is_active', 'collection_frequency']
+
+
 class FeeTypeSerializer(serializers.ModelSerializer):
+    sub_types = SubFeeTypeSerializer(many=True, read_only=True)
+    has_sub_types = serializers.SerializerMethodField()
+
     class Meta:
         model = FeeType
         fields = [
@@ -14,7 +24,43 @@ class FeeTypeSerializer(serializers.ModelSerializer):
             'collection_frequency', 'collection_day',
             'allow_class_teacher_collection', 'allow_any_teacher_collection',
             'require_payment_approval',
+            'parent_fee_type',
+            'sub_types',
+            'has_sub_types',
         ]
+
+    def get_has_sub_types(self, obj):
+        return obj.sub_types.exists()
+
+
+class StudentFeeSubTypeSerializer(serializers.ModelSerializer):
+    main_fee_type_name = serializers.CharField(source='main_fee_type.name', read_only=True)
+    sub_fee_type_name = serializers.CharField(source='sub_fee_type.name', read_only=True, allow_null=True)
+    student_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StudentFeeSubType
+        fields = [
+            'id', 'student', 'student_name',
+            'main_fee_type', 'main_fee_type_name',
+            'sub_fee_type', 'sub_fee_type_name',
+        ]
+
+    def get_student_name(self, obj):
+        return f"{obj.student.first_name} {obj.student.last_name}"
+
+    def create(self, validated_data):
+        validated_data['school'] = self.context['request'].user.school
+        # upsert: update if already exists
+        obj, _ = StudentFeeSubType.objects.update_or_create(
+            student=validated_data['student'],
+            main_fee_type=validated_data['main_fee_type'],
+            defaults={
+                'sub_fee_type': validated_data.get('sub_fee_type'),
+                'school': validated_data['school'],
+            },
+        )
+        return obj
 
 
 class FeeStructureSerializer(serializers.ModelSerializer):
@@ -22,7 +68,7 @@ class FeeStructureSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = FeeStructure
-        fields = ['id', 'fee_type', 'fee_type_name', 'level', 'amount', 'collection_period', 'due_date']
+        fields = ['id', 'fee_type', 'fee_type_name', 'level', 'tier_label', 'amount', 'collection_period', 'due_date']
 
 
 class StudentFeeSerializer(serializers.ModelSerializer):

@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     FeeTypeViewSet, FeeStructureViewSet, StudentFeeViewSet,
     FeePaymentViewSet, FeeCollectionViewSet, StudentSearchForFeeViewSet,
-    FeeReportViewSet, TermBillViewSet
+    FeeReportViewSet, TermBillViewSet, StudentFeeSubTypeViewSet,
 )
 
 router = DefaultRouter()
@@ -15,6 +15,7 @@ router.register(r'collections', FeeCollectionViewSet, basename='fee-collection')
 router.register(r'search', StudentSearchForFeeViewSet, basename='student-search-fee')
 router.register(r'reports', FeeReportViewSet, basename='fee-report')
 router.register(r'term-bills', TermBillViewSet, basename='term-bill')
+router.register(r'student-sub-types', StudentFeeSubTypeViewSet, basename='student-fee-sub-type')
 
 urlpatterns = [
     path('', include(router.urls)),
