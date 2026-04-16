@@ -31,9 +31,21 @@ def _can_collect(user, fee_type: FeeType) -> bool:
         if fee_type.allow_any_teacher_collection:
             return True
         if fee_type.allow_class_teacher_collection:
-            teacher = getattr(user, 'teacher', None)
-            if teacher and teacher.is_class_teacher_of.exists():
+            # Class.class_teacher is a direct FK to User
+            from schools.models import Class as SchoolClass
+            if SchoolClass.objects.filter(class_teacher=user).exists():
                 return True
+        # Special fee collector via StaffPermission
+        from schools.models import StaffPermission
+        try:
+            perm = StaffPermission.objects.get(school=user.school, teacher=user)
+            if (perm.can_collect_fees and perm.fee_collection_enabled
+                    and user.school.special_fee_collection_enabled):
+                assigned = perm.collect_fee_types.all()
+                if not assigned.exists() or assigned.filter(id=fee_type.id).exists():
+                    return True
+        except StaffPermission.DoesNotExist:
+            pass
     return False
 
 
@@ -452,9 +464,10 @@ class FeePaymentViewSet(viewsets.ModelViewSet):
                 defaults={'total_amount': 0, 'amount_paid': 0, 'balance': 0},
             )
             student_fee.amount_paid += payment.amount_paid
-            student_fee.balance = student_fee.total_amount - student_fee.amount_paid
+            # Clamp balance to 0 — overpayments are not a debt
+            student_fee.balance = max(0, student_fee.total_amount - student_fee.amount_paid)
             student_fee.last_payment_date = timezone.now()
-            if student_fee.balance <= 0:
+            if student_fee.total_amount > 0 and student_fee.balance <= 0:
                 student_fee.status = 'PAID'
             elif student_fee.amount_paid > 0:
                 student_fee.status = 'PARTIAL'
@@ -559,17 +572,25 @@ class FeeReportViewSet(viewsets.ViewSet):
     def collection_summary(self, request):
         """Get overall collection summary"""
         school = request.user.school
-        
-        # Total fees outstanding
-        total_outstanding = StudentFee.objects.filter(
+
+        # Total fees billed (from TermBills — populated when bills are generated)
+        total_billed = TermBill.objects.filter(
             school=school
-        ).aggregate(Sum('balance'))['balance__sum'] or 0
-        
-        # Total collected
+        ).aggregate(Sum('amount_billed'))['amount_billed__sum'] or 0
+
+        # Total collected via payments
         total_collected = FeePayment.objects.filter(
             school=school
         ).aggregate(Sum('amount_paid'))['amount_paid__sum'] or 0
-        
+
+        # Outstanding from TermBills (never negative)
+        total_outstanding = TermBill.objects.filter(
+            school=school
+        ).exclude(status='WAIVED').aggregate(
+            total=Sum('balance')
+        )['total'] or 0
+        total_outstanding = max(0, float(total_outstanding))
+
         # By fee type
         by_fee_type = FeePayment.objects.filter(
             school=school
@@ -577,7 +598,7 @@ class FeeReportViewSet(viewsets.ViewSet):
             total=Sum('amount_paid'),
             transactions=Count('id')
         )
-        
+
         # By collector (teacher/admin)
         by_collector = FeePayment.objects.filter(
             school=school
@@ -588,10 +609,15 @@ class FeeReportViewSet(viewsets.ViewSet):
             total=Sum('amount_paid'),
             transactions=Count('id')
         )
-        
+
+        # Total payment transactions count
+        total_payment_count = FeePayment.objects.filter(school=school).count()
+
         return Response({
-            'total_outstanding': float(total_outstanding),
+            'total_billed': float(total_billed),
+            'total_outstanding': total_outstanding,
             'total_collected': float(total_collected),
+            'total_payment_count': total_payment_count,
             'by_fee_type': list(by_fee_type),
             'by_collector': list(by_collector)
         })

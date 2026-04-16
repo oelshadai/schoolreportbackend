@@ -1,5 +1,8 @@
 from rest_framework import serializers
-from .models import School, AcademicYear, Term, Class, Subject, ClassSubject, GradingScale
+from .models import School, AcademicYear, Term, Class, Subject, ClassSubject, GradingScale, StaffPermission
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 
 class SchoolSerializer(serializers.ModelSerializer):
@@ -94,7 +97,10 @@ class SchoolSettingsSerializer(serializers.ModelSerializer):
             'grade_scale_d_min', 'grade_scale_f_min',
             
             # Timestamps
-            'updated_at'
+            'updated_at',
+
+            # Staff permissions
+            'special_fee_collection_enabled',
         ]
         read_only_fields = ['id', 'updated_at']
         
@@ -229,3 +235,37 @@ class BulkRemovalSerializer(serializers.Serializer):
         min_length=1,
         help_text="List of class IDs to remove subjects from"
     )
+
+
+class StaffPermissionSerializer(serializers.ModelSerializer):
+    teacher_name = serializers.SerializerMethodField()
+    teacher_email = serializers.SerializerMethodField()
+    collect_fee_type_ids = serializers.PrimaryKeyRelatedField(
+        source='collect_fee_types',
+        many=True,
+        queryset=__import__('fees.models', fromlist=['FeeType']).FeeType.objects.all(),
+        required=False,
+    )
+    cover_class_ids = serializers.PrimaryKeyRelatedField(
+        source='cover_classes',
+        many=True,
+        queryset=Class.objects.all(),
+        required=False,
+    )
+
+    class Meta:
+        model = StaffPermission
+        fields = [
+            'id', 'teacher', 'teacher_name', 'teacher_email',
+            'can_collect_fees', 'fee_collection_enabled',
+            'collect_fee_type_ids',
+            'can_cover_attendance', 'cover_class_ids',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'teacher_name', 'teacher_email']
+
+    def get_teacher_name(self, obj):
+        return obj.teacher.get_full_name() or obj.teacher.username
+
+    def get_teacher_email(self, obj):
+        return obj.teacher.email

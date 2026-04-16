@@ -2,12 +2,13 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import School, AcademicYear, Term, Class, Subject, ClassSubject, GradingScale
+from .models import School, AcademicYear, Term, Class, Subject, ClassSubject, GradingScale, StaffPermission
 from .serializers import (
     SchoolSerializer, AcademicYearSerializer, TermSerializer,
     ClassSerializer, SubjectSerializer, ClassSubjectSerializer,
     GradingScaleSerializer, BulkAssignmentSerializer, BulkRemovalSerializer,
     SchoolSettingsSerializer, ParentPortalSettingsSerializer, ParentPortalWriteSerializer,
+    StaffPermissionSerializer,
 )
 from django.contrib.auth import get_user_model
 from students.models import Student
@@ -949,3 +950,195 @@ class ParentManagementViewSet(viewsets.ViewSet):
             'email': parent.email,
             'generated_password': raw_password,
         }, status=status.HTTP_201_CREATED)
+
+
+class StaffPermissionViewSet(viewsets.ModelViewSet):
+    serializer_class = StaffPermissionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.school:
+            return StaffPermission.objects.none()
+        return StaffPermission.objects.filter(school=user.school).select_related('teacher').prefetch_related('collect_fee_types', 'cover_classes')
+
+    def _require_admin(self, user):
+        if user.role not in ('SCHOOL_ADMIN', 'PRINCIPAL'):
+            return Response({'error': 'Admin access required.'}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def perform_create(self, serializer):
+        serializer.save(school=self.request.user.school)
+
+    def create(self, request, *args, **kwargs):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get'], url_path='my-permissions')
+    def my_permissions(self, request):
+        user = request.user
+        if not user.school:
+            return Response({'detail': 'No school attached.'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            perm = StaffPermission.objects.prefetch_related('collect_fee_types', 'cover_classes').get(
+                school=user.school, teacher=user
+            )
+        except StaffPermission.DoesNotExist:
+            return Response({'detail': 'No staff permission record found.'}, status=status.HTTP_404_NOT_FOUND)
+        data = StaffPermissionSerializer(perm).data
+        data['school_fee_collection_enabled'] = perm.school.special_fee_collection_enabled
+        data['cover_class_ids'] = list(perm.cover_classes.values_list('id', flat=True))
+        data['cover_class_names'] = [{'id': c.id, 'name': c.full_name} for c in perm.cover_classes.all()]
+        data['collect_fee_type_ids'] = list(perm.collect_fee_types.values_list('id', flat=True))
+        return Response(data)
+
+    @action(detail=False, methods=['patch'], url_path='toggle-school-master')
+    def toggle_school_master(self, request):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        school = request.user.school
+        enabled = request.data.get('enabled')
+        if enabled is None:
+            return Response({'error': 'enabled field required.'}, status=status.HTTP_400_BAD_REQUEST)
+        school.special_fee_collection_enabled = bool(enabled)
+        school.save(update_fields=['special_fee_collection_enabled'])
+        return Response({'special_fee_collection_enabled': school.special_fee_collection_enabled})
+
+    @action(detail=True, methods=['patch'], url_path='toggle')
+    def toggle_teacher(self, request, pk=None):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        perm = self.get_object()
+        enabled = request.data.get('fee_collection_enabled')
+        if enabled is None:
+            return Response({'error': 'fee_collection_enabled field required.'}, status=status.HTTP_400_BAD_REQUEST)
+        perm.fee_collection_enabled = bool(enabled)
+        perm.save(update_fields=['fee_collection_enabled'])
+        return Response({'fee_collection_enabled': perm.fee_collection_enabled})
+
+    @action(detail=False, methods=['get'], url_path='teachers-list')
+    def teachers_list(self, request):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        UserModel = get_user_model()
+        teachers = UserModel.objects.filter(
+            school=request.user.school, role='TEACHER', is_active=True
+        ).order_by('first_name', 'last_name')
+        return Response([{'id': t.id, 'name': t.get_full_name() or t.username, 'email': t.email} for t in teachers])
+
+
+class StaffPermissionViewSet(viewsets.ModelViewSet):
+    serializer_class = StaffPermissionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.school:
+            return StaffPermission.objects.none()
+        return StaffPermission.objects.filter(school=user.school).select_related('teacher').prefetch_related('collect_fee_types', 'cover_classes')
+
+    def _require_admin(self, user):
+        if user.role not in ('SCHOOL_ADMIN', 'PRINCIPAL'):
+            return Response({'error': 'Admin access required.'}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def perform_create(self, serializer):
+        serializer.save(school=self.request.user.school)
+
+    def create(self, request, *args, **kwargs):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get'], url_path='my-permissions')
+    def my_permissions(self, request):
+        user = request.user
+        if not user.school:
+            return Response({'detail': 'No school attached.'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            perm = StaffPermission.objects.prefetch_related('collect_fee_types', 'cover_classes').get(
+                school=user.school, teacher=user
+            )
+        except StaffPermission.DoesNotExist:
+            return Response({'detail': 'No staff permission record found.'}, status=status.HTTP_404_NOT_FOUND)
+        data = StaffPermissionSerializer(perm).data
+        data['school_fee_collection_enabled'] = perm.school.special_fee_collection_enabled
+        data['cover_class_ids'] = list(perm.cover_classes.values_list('id', flat=True))
+        data['cover_class_names'] = [{'id': c.id, 'name': c.full_name} for c in perm.cover_classes.all()]
+        data['collect_fee_type_ids'] = list(perm.collect_fee_types.values_list('id', flat=True))
+        return Response(data)
+
+    @action(detail=False, methods=['patch'], url_path='toggle-school-master')
+    def toggle_school_master(self, request):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        school = request.user.school
+        enabled = request.data.get('enabled')
+        if enabled is None:
+            return Response({'error': 'enabled field required.'}, status=status.HTTP_400_BAD_REQUEST)
+        school.special_fee_collection_enabled = bool(enabled)
+        school.save(update_fields=['special_fee_collection_enabled'])
+        return Response({'special_fee_collection_enabled': school.special_fee_collection_enabled})
+
+    @action(detail=True, methods=['patch'], url_path='toggle')
+    def toggle_teacher(self, request, pk=None):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        perm = self.get_object()
+        enabled = request.data.get('fee_collection_enabled')
+        if enabled is None:
+            return Response({'error': 'fee_collection_enabled field required.'}, status=status.HTTP_400_BAD_REQUEST)
+        perm.fee_collection_enabled = bool(enabled)
+        perm.save(update_fields=['fee_collection_enabled'])
+        return Response({'fee_collection_enabled': perm.fee_collection_enabled})
+
+    @action(detail=False, methods=['get'], url_path='teachers-list')
+    def teachers_list(self, request):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        UserModel = get_user_model()
+        teachers = UserModel.objects.filter(
+            school=request.user.school, role='TEACHER', is_active=True
+        ).order_by('first_name', 'last_name')
+        return Response([{'id': t.id, 'name': t.get_full_name() or t.username, 'email': t.email} for t in teachers])

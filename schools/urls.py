@@ -5,6 +5,7 @@ from .views import (
     ClassViewSet, SubjectViewSet, ClassSubjectViewSet,
     GradingScaleViewSet, SchoolDashboardView, SchoolSettingsView,
     ParentPortalSettingsView, ParentManagementViewSet,
+    StaffPermissionViewSet,
 )
 
 router = DefaultRouter()
@@ -15,6 +16,7 @@ router.register(r'subjects', SubjectViewSet, basename='subject')
 router.register(r'class-subjects', ClassSubjectViewSet, basename='class-subject')
 router.register(r'grading-scales', GradingScaleViewSet, basename='grading-scale')
 router.register(r'parent-accounts', ParentManagementViewSet, basename='parent-accounts')
+router.register(r'staff-permissions', StaffPermissionViewSet, basename='staff-permissions')
 router.register(r'', SchoolViewSet, basename='school')
 
 urlpatterns = [

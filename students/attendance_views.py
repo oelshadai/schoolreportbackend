@@ -363,7 +363,7 @@ class AttendanceAdminViewSet(viewsets.ViewSet):
             student__school=self.request.user.school
         )
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], url_path='daily-stats')
     def daily_stats(self, request):
         """Get daily attendance statistics"""
         date_str = request.query_params.get('date', str(date.today()))
@@ -397,7 +397,7 @@ class AttendanceAdminViewSet(viewsets.ViewSet):
         
         return Response({'stats': stats})
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], url_path='class-summary')
     def class_summary(self, request):
         """Get attendance summary by class"""
         date_str = request.query_params.get('date', str(date.today()))
@@ -442,7 +442,7 @@ class AttendanceAdminViewSet(viewsets.ViewSet):
         
         return Response({'summaries': summaries})
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], url_path='daily')
     def daily(self, request):
         """Get daily attendance records with filters"""
         date_str = request.query_params.get('date', str(date.today()))
@@ -469,7 +469,7 @@ class AttendanceAdminViewSet(viewsets.ViewSet):
         
         return Response({'records': records})
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], url_path='student-history')
     def student_history(self, request):
         """Get attendance history for a specific student"""
         student_id = request.query_params.get('student_id')

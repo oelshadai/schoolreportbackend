@@ -124,6 +124,12 @@ class School(models.Model):
     subscription_plan = models.CharField(max_length=50, default='FREE')
     subscription_expires = models.DateField(null=True, blank=True)
 
+    # Staff Permissions
+    special_fee_collection_enabled = models.BooleanField(
+        default=True,
+        help_text='Master switch — when off, no special fee-collector teacher can see the fee collection page'
+    )
+
     # ---------------------------------------------------------------
     # Parent Portal Settings
     # ---------------------------------------------------------------
@@ -318,3 +324,49 @@ class GradingScale(models.Model):
     
     def __str__(self):
         return f"{self.grade} ({self.min_score}-{self.max_score})"
+
+
+class StaffPermission(models.Model):
+    """
+    Grants a teacher extra cross-class permissions:
+    - can_collect_fees: teacher appears as a special fee collector
+    - fee_collection_enabled: sub-toggle; admin flips this off/on without deleting the record
+    - collect_fee_types: specific fee types they handle (empty = all allowed types)
+    - can_cover_attendance: teacher can take attendance for other classes
+    - cover_classes: which classes they cover (empty = all, but only when can_cover_attendance=True)
+    """
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='staff_permissions')
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='staff_permissions',
+        limit_choices_to={'role': 'TEACHER'},
+    )
+
+    # Fee collection
+    can_collect_fees = models.BooleanField(default=False)
+    fee_collection_enabled = models.BooleanField(
+        default=True,
+        help_text='Sub-toggle: turn off to hide fee collection from this teacher without removing the assignment',
+    )
+    collect_fee_types = models.ManyToManyField(
+        'fees.FeeType', blank=True, related_name='special_collectors',
+        help_text='Leave empty to allow all active fee types',
+    )
+
+    # Attendance cover
+    can_cover_attendance = models.BooleanField(default=False)
+    cover_classes = models.ManyToManyField(
+        'schools.Class', blank=True, related_name='cover_teachers',
+        help_text='Classes this teacher can cover for attendance',
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'staff_permissions'
+        unique_together = ('school', 'teacher')
+        verbose_name = 'Staff Permission'
+
+    def __str__(self):
+        return f"{self.teacher.get_full_name()} — {self.school.name}"
