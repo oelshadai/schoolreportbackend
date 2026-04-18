@@ -602,7 +602,17 @@ class BehaviourViewSet(viewsets.ModelViewSet):
             except Student.DoesNotExist:
                 return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
         
-        serializer = self.get_serializer(data=request.data)
+        # Auto-assign current term if not provided
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        if not data.get('term'):
+            from schools.models import Term
+            current_term = Term.objects.filter(is_current=True).first()
+            if current_term:
+                data['term'] = current_term.id
+            else:
+                return Response({'error': 'No current term set. Please ask admin to set the current term.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        serializer = self.get_serializer(data=data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
