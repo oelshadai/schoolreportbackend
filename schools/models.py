@@ -130,6 +130,12 @@ class School(models.Model):
         help_text='Master switch — when off, no special fee-collector teacher can see the fee collection page'
     )
 
+    # Teacher student management
+    teachers_can_add_students = models.BooleanField(
+        default=True,
+        help_text='Master switch — when off, class teachers cannot add students; only admins can'
+    )
+
     # ---------------------------------------------------------------
     # Parent Portal Settings
     # ---------------------------------------------------------------

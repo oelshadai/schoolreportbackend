@@ -61,9 +61,11 @@
         
         .watermark {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            margin: auto;
             width: 300px;
             height: 300px;
             opacity: 0.05;
@@ -147,7 +149,6 @@
         
         .student-info {
             margin: 10px 0;
-            border: 2px solid #000;
             padding: 10px 20px;
             background: #fafafa;
         }
@@ -204,15 +205,18 @@
         }
 
         .remarks-row {
-            display: flex;
-            gap: 10px;
+            display: table;
+            width: 100%;
+            border-spacing: 10px 0;
             margin: 4pt 0;
         }
         .remarks-box {
-            flex: 1;
+            display: table-cell;
+            width: 50%;
             border: 1px solid #000;
             padding: 4px 6px;
             min-height: 32px;
+            vertical-align: top;
         }
         .remarks-label {
             font-weight: bold;
@@ -227,14 +231,14 @@
         
         .signature-section {
             margin-top: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
+            display: table;
+            width: 100%;
+            border-spacing: 6px 0;
         }
         .signature-box {
+            display: table-cell;
             text-align: center;
-            flex: 1;
-            margin: 0 6px;
+            vertical-align: bottom;
         }
         .signature-line {
             border-bottom: 2px solid #000;
@@ -347,61 +351,62 @@
                 </div>
                 
                 <div class="student-info">
-                    <div style="display:flex;width:100%;gap:0;">
+                    <table style="width:100%;border-collapse:collapse;border:none;">
+                        <tr>
                         <!-- LEFT column -->
-                        <div style="flex:{% if school.show_student_photos %}3{% else %}1{% endif %};padding-right:8px;">
-                            <div style="margin:1pt 0;font-size:9pt;font-weight:bold;">NAME:</div>
-                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                        <td style="width:{% if school.show_student_photos %}27%{% else %}33%{% endif %};vertical-align:top;padding-right:8px;">
+                            <div style="margin:1pt 0;font-size:8pt;font-weight:bold;color:#555;">NAME:</div>
+                            <div style="margin:1pt 0 4pt;font-size:10pt;font-weight:bold;color:#1a237e;">
                                 {{ student.get_full_name|upper|default:"Sample Student" }}
                             </div>
-                            <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">ACADEMIC YEAR:</div>
-                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                            <div style="margin:3pt 0 1pt;font-size:8pt;font-weight:bold;color:#555;">ACADEMIC YEAR:</div>
+                            <div style="margin:1pt 0 4pt;font-size:10pt;font-weight:bold;color:#1a237e;">
                                 {{ term.academic_year.name|default:"2023/2024" }}
                             </div>
-                            <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">CLASS TEACHER:</div>
-                            <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                            <div style="margin:3pt 0 1pt;font-size:8pt;font-weight:bold;color:#555;">CLASS TEACHER:</div>
+                            <div style="margin:1pt 0;font-size:10pt;font-weight:bold;color:#1a237e;">
                                 {{ class_teacher_name|default:"—" }}
                             </div>
-                        </div>
+                        </td>
                         <!-- CENTER column -->
-                        <div style="flex:{% if school.show_student_photos %}3{% else %}1{% endif %};padding:0 8px;border-left:1px solid #ccc;border-right:1px solid #ccc;">
-                            <div style="margin:1pt 0;font-size:9pt;font-weight:bold;">CLASS:</div>
-                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                        <td style="width:{% if school.show_student_photos %}27%{% else %}34%{% endif %};vertical-align:top;padding:0 8px;">
+                            <div style="margin:1pt 0;font-size:8pt;font-weight:bold;color:#555;">CLASS:</div>
+                            <div style="margin:1pt 0 4pt;font-size:10pt;font-weight:bold;color:#1a237e;">
                                 {{ student.current_class.name|default:"BASIC 7A"|upper }}
                             </div>
-                            <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">TERM:</div>
-                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                            <div style="margin:3pt 0 1pt;font-size:8pt;font-weight:bold;color:#555;">TERM:</div>
+                            <div style="margin:1pt 0 4pt;font-size:10pt;font-weight:bold;color:#1a237e;">
                                 {{ term.name|upper|default:"THREE (3)" }}
                             </div>
-                            <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">CLOSING DATE:</div>
-                            <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                            <div style="margin:3pt 0 1pt;font-size:8pt;font-weight:bold;color:#555;">CLOSING DATE:</div>
+                            <div style="margin:1pt 0;font-size:10pt;font-weight:bold;color:#1a237e;">
                                 {% if school.term_closing_date %}{{ school.term_closing_date }}{% else %}—{% endif %}
                             </div>
-                        </div>
+                        </td>
                         <!-- RIGHT column -->
-                        <div style="flex:{% if school.show_student_photos %}3{% else %}1{% endif %};padding:0 8px;">
-                            <div style="margin:1pt 0;font-size:9pt;font-weight:bold;">CLASS NO:</div>
-                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                        <td style="width:{% if school.show_student_photos %}27%{% else %}33%{% endif %};vertical-align:top;padding:0 8px;">
+                            <div style="margin:1pt 0;font-size:8pt;font-weight:bold;color:#555;">CLASS NO:</div>
+                            <div style="margin:1pt 0 4pt;font-size:10pt;font-weight:bold;color:#1a237e;">
                                 {{ student.student_id|default:"—" }}
                             </div>
                             {% if school.show_position_in_class %}
-                            <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">POSITION:</div>
-                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                            <div style="margin:3pt 0 1pt;font-size:8pt;font-weight:bold;color:#555;">POSITION:</div>
+                            <div style="margin:1pt 0 4pt;font-size:10pt;font-weight:bold;color:#1a237e;">
                                 {% if term_result.class_position %}{{ term_result.class_position|ordinal }}{% else %}—{% endif %}
                             </div>
                             {% else %}
-                            <div style="margin:3pt 0 1pt;font-size:9pt;">&nbsp;</div>
-                            <div style="margin:1pt 0 4pt;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">&nbsp;</div>
+                            <div style="margin:3pt 0 1pt;font-size:8pt;">&nbsp;</div>
+                            <div style="margin:1pt 0 4pt;font-size:10pt;">&nbsp;</div>
                             {% endif %}
-                            <div style="margin:3pt 0 1pt;font-size:9pt;font-weight:bold;">REOPENING DATE:</div>
-                            <div style="margin:1pt 0;font-size:9pt;border-bottom:1px solid #000;padding-bottom:1px;">
+                            <div style="margin:3pt 0 1pt;font-size:8pt;font-weight:bold;color:#555;">REOPENING DATE:</div>
+                            <div style="margin:1pt 0;font-size:10pt;font-weight:bold;color:#1a237e;">
                                 {% if school.term_reopening_date %}{{ school.term_reopening_date }}{% else %}—{% endif %}
                             </div>
-                        </div>
+                        </td>
                         <!-- PHOTO column (conditional) -->
                         {% if school.show_student_photos %}
-                        <div style="flex:2;padding-left:8px;display:flex;align-items:center;justify-content:center;">
-                            <div style="width:55pt;height:70pt;border:1pt solid #000;background:white;text-align:center;font-size:6pt;line-height:70pt;overflow:hidden;">
+                        <td style="width:19%;vertical-align:middle;text-align:center;padding-left:8px;">
+                            <div style="width:55pt;height:70pt;border:1pt solid #000;background:white;text-align:center;font-size:6pt;line-height:70pt;overflow:hidden;margin:0 auto;">
                                 {% if student.photo %}
                                     {% if student_photo_absolute %}
                                         <img src="{{ student_photo_absolute }}" alt="{{ student.get_full_name }}" style="width:100%;height:100%;object-fit:cover;">
@@ -412,9 +417,10 @@
                                     STUDENT<br>PHOTO
                                 {% endif %}
                             </div>
-                        </div>
+                        </td>
                         {% endif %}
-                    </div>
+                        </tr>
+                    </table>
                 </div>
             </td>
         </tr>

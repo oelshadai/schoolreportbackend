@@ -101,6 +101,7 @@ class SchoolSettingsSerializer(serializers.ModelSerializer):
 
             # Staff permissions
             'special_fee_collection_enabled',
+            'teachers_can_add_students',
         ]
         read_only_fields = ['id', 'updated_at']
         

@@ -69,6 +69,10 @@ class StudentViewSet(StudentValidationMixin, viewsets.ModelViewSet):
 
         # If teacher, ensure they can only create for their own class
         if getattr(user, 'role', None) == 'TEACHER':
+            # Check if admin has allowed teachers to add students
+            if not getattr(user.school, 'teachers_can_add_students', True):
+                raise permissions.PermissionDenied("Adding students is disabled by your school admin")
+
             from schools.models import Class
             teacher_classes = list(user.assigned_classes.all())
             if not teacher_classes:

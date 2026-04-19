@@ -441,7 +441,6 @@ def view_student_published_report(request, term_id):
         
         # Return the HTML response using the SAME template as the teacher system
         response = render(request, 'reports/terminal_report.html', context)
-        response['X-Frame-Options'] = 'SAMEORIGIN'
         return response
         
     except ReportCard.DoesNotExist:
