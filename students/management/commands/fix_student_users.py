@@ -5,15 +5,16 @@ from students.models import Student
 User = get_user_model()
 
 class Command(BaseCommand):
-    help = 'Fix student user accounts - create missing accounts and fix roles'
+    help = 'Fix student user accounts - create missing accounts, fix roles, and sync passwords'
 
     def handle(self, *args, **options):
         self.stdout.write('Fixing student user accounts...')
         
-        # Find all students with user accounts and fix roles
+        # Find all students with user accounts and fix roles + password sync
         students_with_users = Student.objects.filter(user__isnull=False).select_related('user')
         
         fixed_count = 0
+        password_synced = 0
         for student in students_with_users:
             user = student.user
             changed = False
@@ -30,6 +31,16 @@ class Command(BaseCommand):
             if changed:
                 user.save()
                 fixed_count += 1
+
+            # Re-sync password: if the stored plain-text password doesn't
+            # match the hashed one (desync from admin edits), fix it now.
+            if student.password and not user.check_password(student.password):
+                user.set_password(student.password)
+                user.save(update_fields=['password'])
+                password_synced += 1
+                self.stdout.write(
+                    f'  Synced password for student {student.student_id} ({user.email})'
+                )
         
         # Find students without user accounts and create them
         students_without_users = Student.objects.filter(user__isnull=True)
@@ -74,6 +85,6 @@ class Command(BaseCommand):
         
         self.stdout.write(
             self.style.SUCCESS(
-                f'Done: fixed {fixed_count} existing users, created {created_count} new user accounts'
+                f'Done: fixed {fixed_count} role/school issues, synced {password_synced} passwords, created {created_count} new user accounts'
             )
         )

@@ -5,8 +5,81 @@ from rest_framework.permissions import IsAuthenticated
 from django.db.models import Count, Q
 from django.utils.dateparse import parse_date
 from datetime import date, datetime
-from students.models import DailyAttendance, Student
+from students.models import DailyAttendance, Student, Attendance
 from schools.models import Class
+
+
+def _auto_charge_daily_fees(student, attendance_date, marked_by):
+    """
+    When a student is marked present (or late) for a day, automatically
+    record a FeePayment for every active DAILY fee type that has a fee
+    structure amount defined for the student's class level.
+
+    Idempotent: uses attendance_date + unique constraint so re-saving
+    attendance never creates a duplicate charge.
+    """
+    from fees.models import FeeType, FeeStructure, FeePayment
+    from decimal import Decimal
+
+    cls = student.current_class
+    if cls is None:
+        return
+
+    school = cls.school
+    daily_fee_types = FeeType.objects.filter(
+        school=school,
+        collection_frequency='DAILY',
+        is_active=True,
+    )
+
+    for fee_type in daily_fee_types:
+        # Find the fee amount for this student's class level
+        structure = FeeStructure.objects.filter(
+            school=school,
+            fee_type=fee_type,
+            level=cls.level,
+        ).first()
+        if structure is None or structure.amount <= 0:
+            continue
+
+        # Idempotent: only create if not already recorded for this day
+        FeePayment.objects.get_or_create(
+            student=student,
+            fee_type=fee_type,
+            attendance_date=attendance_date,
+            defaults={
+                'school': school,
+                'amount_paid': structure.amount,
+                'payment_method': 'CASH',
+                'collected_by': marked_by,
+                'notes': f'Auto-recorded from attendance on {attendance_date}',
+                'is_verified': True,
+            },
+        )
+
+
+    """Aggregate all DailyAttendance records for a student in a class into
+    the term-level Attendance summary used by the report card."""
+    if not current_term:
+        return
+    agg = DailyAttendance.objects.filter(
+        student=student,
+        class_instance=class_instance,
+    ).aggregate(
+        present=Count('id', filter=Q(status='present')),
+        absent=Count('id', filter=Q(status='absent')),
+        late=Count('id', filter=Q(status='late')),
+    )
+    Attendance.objects.update_or_create(
+        student=student,
+        term=current_term,
+        defaults={
+            'days_present': (agg['present'] or 0) + (agg['late'] or 0),
+            'days_absent': agg['absent'] or 0,
+            'times_late': agg['late'] or 0,
+            'total_days': current_term.total_days if current_term.total_days > 0 else (agg['present'] or 0) + (agg['absent'] or 0) + (agg['late'] or 0),
+        }
+    )
 
 class TeacherAttendanceViewSet(viewsets.ViewSet):
     """Teacher attendance management - for teachers to take and manage attendance"""
@@ -186,7 +259,14 @@ class TeacherAttendanceViewSet(viewsets.ViewSet):
                 )
                 
                 print(f"DEBUG: {'Created' if created else 'Updated'} attendance for {student.get_full_name()}: {status_value}")
-                
+
+                # Auto-charge daily fees for present/late students
+                if status_value in ('present', 'late'):
+                    try:
+                        _auto_charge_daily_fees(student, selected_date, request.user)
+                    except Exception as fee_err:
+                        print(f"DEBUG: Daily fee auto-charge failed for student {student_id}: {fee_err}")
+
                 if created:
                     saved_count += 1
                 else:
@@ -201,6 +281,25 @@ class TeacherAttendanceViewSet(viewsets.ViewSet):
                 continue
         
         print(f"DEBUG: Attendance save complete - saved: {saved_count}, updated: {updated_count}, errors: {len(errors)}")
+        
+        # Sync the term-level Attendance summary from the daily records just saved
+        school = cls.school
+        current_term = getattr(school, 'current_term', None)
+        if not current_term and hasattr(school, 'current_term_id') and school.current_term_id:
+            from schools.models import Term
+            try:
+                current_term = Term.objects.get(id=school.current_term_id)
+            except Term.DoesNotExist:
+                current_term = None
+        
+        if current_term:
+            affected_student_ids = {item.get('student_id') for item in attendance_data if item.get('student_id')}
+            for sid in affected_student_ids:
+                try:
+                    st = Student.objects.get(id=sid, current_class=cls, is_active=True)
+                    _sync_attendance_summary(st, cls, current_term)
+                except Student.DoesNotExist:
+                    pass
         
         return Response({
             'message': 'Attendance saved successfully',
@@ -268,11 +367,30 @@ class StudentAttendanceViewSet(viewsets.ViewSet):
         except Student.DoesNotExist:
             return None
 
-    def list(self, request):
-        """GET /api/students/my-attendance/ — records + summary in one call"""
+    def _get_student_for_request(self, request):
+        """Resolve student for both STUDENT and PARENT roles."""
+        role = getattr(request.user, 'role', '')
+        if role == 'PARENT':
+            from accounts.models import ParentStudent
+            student_id = request.query_params.get('student_id', '').strip()
+            if not student_id:
+                return None, Response({'error': 'student_id required for parent access'}, status=status.HTTP_400_BAD_REQUEST)
+            link = ParentStudent.objects.filter(
+                parent=request.user, student__student_id=student_id
+            ).select_related('student').first()
+            if not link:
+                return None, Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+            return link.student, None
         student = self.get_student()
         if not student:
-            return Response({'error': 'Student profile not found'}, status=status.HTTP_404_NOT_FOUND)
+            return None, Response({'error': 'Student profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        return student, None
+
+    def list(self, request):
+        """GET /api/students/my-attendance/ — records + summary in one call"""
+        student, err = self._get_student_for_request(request)
+        if err:
+            return err
 
         from datetime import timedelta
         start_date = date.today() - timedelta(days=90)

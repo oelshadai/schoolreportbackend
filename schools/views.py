@@ -601,34 +601,48 @@ class ParentManagementViewSet(viewsets.ViewSet):
         return None
 
     def list(self, request):
-        """List all parent accounts for this school."""
+        """List all users who have at least one child linked for this school.
+        Includes dual-role users (e.g. teachers who are also guardians).
+        """
         err = self._require_admin(request.user)
         if err:
             return err
-        from accounts.models import ParentStudent, User as UserModel
-        parents = UserModel.objects.filter(school=request.user.school, role='PARENT').prefetch_related('children_links__student__user', 'children_links__student__current_class')
-        data = []
-        for p in parents:
-            children = []
-            for link in p.children_links.all():
-                s = link.student
-                children.append({
-                    'link_id': link.id,
-                    'student_id': s.student_id,
-                    'student_name': f"{s.user.first_name} {s.user.last_name}",
-                    'class': f"{s.current_class.level} {s.current_class.section}".strip() if s.current_class else '',
-                    'relationship': link.relationship,
-                    'is_primary_guardian': link.is_primary_guardian,
-                })
-            data.append({
-                'id': p.id,
-                'name': p.get_full_name(),
-                'email': p.email,
-                'phone_number': p.phone_number or '',
-                'is_active': p.is_active,
-                'children': children,
+        from accounts.models import ParentStudent
+
+        # Build directly from ParentStudent links scoped to this school's students
+        links = (
+            ParentStudent.objects
+            .filter(student__school=request.user.school)
+            .select_related('parent', 'student__current_class')
+            .order_by('parent__last_name', 'parent__first_name')
+        )
+
+        parent_map: dict = {}
+        for link in links:
+            pid = link.parent_id
+            if pid not in parent_map:
+                p = link.parent
+                parent_map[pid] = {
+                    'id': p.id,
+                    'name': p.get_full_name() or p.email,
+                    'email': p.email,
+                    'phone_number': p.phone_number or '',
+                    'is_active': p.is_active,
+                    'role': p.role,
+                    'children': [],
+                }
+            s = link.student
+            student_name = f"{s.first_name} {s.last_name}".strip() or s.student_id
+            parent_map[pid]['children'].append({
+                'link_id': link.id,
+                'student_id': s.student_id,
+                'student_name': student_name,
+                'class': str(s.current_class) if s.current_class else '',
+                'relationship': link.relationship,
+                'is_primary_guardian': link.is_primary_guardian,
             })
-        return Response(data)
+
+        return Response(list(parent_map.values()))
 
     @action(detail=False, methods=['post'])
     def create_parent(self, request):
@@ -730,122 +744,112 @@ class ParentManagementViewSet(viewsets.ViewSet):
             return Response({'error': 'Link not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     def destroy(self, request, pk=None):
-        """Delete a parent user account."""
+        """Delete a parent account or, for dual-role users, remove only their parent links."""
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        from accounts.models import User as UserModel, ParentStudent
+        try:
+            user = UserModel.objects.get(id=pk, school=request.user.school)
+        except UserModel.DoesNotExist:
+            return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.role == 'PARENT':
+            user.delete()  # cascade deletes ParentStudent links
+            return Response({'message': 'Parent account deleted.', 'deleted': True})
+        else:
+            # Dual-role user (e.g. teacher) — remove links only, keep account
+            count, _ = ParentStudent.objects.filter(
+                parent=user, student__school=request.user.school
+            ).delete()
+            return Response({
+                'message': f'Removed {count} parent link(s). Account kept ({user.role} role).',
+                'deleted': False,
+                'links_removed': count,
+            })
+
+    @action(detail=False, methods=['post'])
+    def reset_password(self, request):
+        """Generate a new random password for a parent account and return it."""
         err = self._require_admin(request.user)
         if err:
             return err
         from accounts.models import User as UserModel
+        import secrets, string
+
+        parent_id = request.data.get('parent_id')
         try:
-            parent = UserModel.objects.get(id=pk, school=request.user.school, role='PARENT')
-            parent.delete()
-            return Response({'message': 'Parent account deleted.'})
+            parent = UserModel.objects.get(id=parent_id, school=request.user.school)
         except UserModel.DoesNotExist:
             return Response({'error': 'Parent not found.'}, status=status.HTTP_404_NOT_FOUND)
 
+        alphabet = string.ascii_letters + string.digits + '!@#$%'
+        raw_password = ''.join(secrets.choice(alphabet) for _ in range(12))
+        parent.set_password(raw_password)
+        parent.save(update_fields=['password'])
+        return Response({
+            'email': parent.email,
+            'new_password': raw_password,
+        })
+
     @action(detail=False, methods=['get'])
-    def students_without_parent(self, request):
-        """List students who have no parent account linked yet."""
-        err = self._require_admin(request.user)
-        if err:
-            return err
-        from students.models import Student
+    def child_summary(self, request):
+        """
+        Parent-facing: return a quick summary for one of their linked children.
+        Query param: ?student_id=<student_id>
+        """
         from accounts.models import ParentStudent
+        from students.models import Student, Attendance
 
-        linked_student_ids = ParentStudent.objects.filter(
-            parent__school=request.user.school
-        ).values_list('student_id', flat=True)
-
-        students = Student.objects.filter(
-            school=request.user.school, is_active=True
-        ).exclude(id__in=linked_student_ids).select_related('current_class')
-
-        data = []
-        for s in students:
-            data.append({
-                'id': s.id,
-                'student_id': s.student_id,
-                'name': f"{s.first_name} {s.last_name}".strip(),
-                'class': s.current_class.full_name if s.current_class else '',
-                'guardian_name': s.guardian_name or '',
-                'guardian_email': s.guardian_email or '',
-                'guardian_phone': s.guardian_phone or '',
-            })
-        return Response(data)
-
-    @action(detail=False, methods=['post'])
-    def create_for_student(self, request):
-        """Create a parent account from an existing student's guardian info."""
-        err = self._require_admin(request.user)
-        if err:
-            return err
-        from accounts.models import ParentStudent, User as UserModel
-        from students.models import Student
-        import secrets
-        import string
-
-        student_id = request.data.get('student_id', '').strip()
-        override_email = request.data.get('email', '').strip().lower()
-        override_first = request.data.get('first_name', '').strip()
-        override_last = request.data.get('last_name', '').strip()
-        override_phone = request.data.get('phone_number', '').strip()
-        relationship = request.data.get('relationship', 'Guardian').strip()
-
+        student_id = request.query_params.get('student_id', '').strip()
         if not student_id:
             return Response({'error': 'student_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Verify the requesting user has a link to this child
+        linked = ParentStudent.objects.filter(
+            parent=request.user, student__student_id=student_id
+        ).select_related('student__current_class').first()
+        if not linked:
+            return Response({'error': 'Access denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        student = linked.student
+
+        # Attendance rate from most recent term record
+        attendance_rate = None
+        latest_att = (
+            Attendance.objects.filter(student=student)
+            .order_by('-term__start_date')
+            .first()
+        )
+        if latest_att and latest_att.total_days and latest_att.total_days > 0:
+            attendance_rate = round(
+                (latest_att.days_present / latest_att.total_days) * 100, 1
+            )
+
+        # Recent subject scores
+        recent_grades = []
         try:
-            student = Student.objects.get(student_id=student_id, school=request.user.school)
-        except Student.DoesNotExist:
-            return Response({'error': 'Student not found.'}, status=status.HTTP_404_NOT_FOUND)
-
-        email = override_email or (student.guardian_email or '').strip().lower()
-        if not email:
-            return Response(
-                {'error': 'No guardian email on file. Please edit the student to add one first.'},
-                status=status.HTTP_400_BAD_REQUEST
+            from scores.models import SubjectResult
+            results = (
+                SubjectResult.objects.filter(student=student)
+                .select_related('class_subject__subject')
+                .order_by('-term__start_date')[:10]
             )
+            for r in results:
+                recent_grades.append({
+                    'subject': r.class_subject.subject.name,
+                    'score': float(r.total_score) if r.total_score is not None else None,
+                })
+        except Exception:
+            pass
 
-        guardian_name = (student.guardian_name or '').strip()
-        parts = guardian_name.split(' ', 1)
-        first_name = override_first or (parts[0] if parts else '')
-        last_name = override_last or (parts[1] if len(parts) > 1 else '')
-        phone = override_phone or student.guardian_phone or ''
-
-        existing = UserModel.objects.filter(email=email).first()
-        if existing:
-            ParentStudent.objects.get_or_create(
-                parent=existing, student=student,
-                defaults={'relationship': relationship, 'is_primary_guardian': True}
-            )
-            return Response({
-                'message': 'Parent account already exists. Child linked.',
-                'parent_id': existing.id,
-                'email': existing.email,
-                'generated_password': None,
-            })
-
-        alphabet = string.ascii_letters + string.digits + '!@#$%'
-        raw_password = ''.join(secrets.choice(alphabet) for _ in range(12))
-
-        parent = UserModel.objects.create_user(
-            email=email,
-            password=raw_password,
-            first_name=first_name,
-            last_name=last_name,
-            role='PARENT',
-            school=request.user.school,
-            phone_number=phone or None,
-        )
-        ParentStudent.objects.create(
-            parent=parent, student=student,
-            relationship=relationship, is_primary_guardian=True,
-        )
         return Response({
-            'message': 'Parent account created and linked.',
-            'parent_id': parent.id,
-            'email': parent.email,
-            'generated_password': raw_password,
-        }, status=status.HTTP_201_CREATED)
+            'student_id': student.student_id,
+            'name': student.get_full_name(),
+            'class_name': str(student.current_class) if student.current_class else '',
+            'attendance_rate': attendance_rate,
+            'recent_grades': recent_grades,
+        })
 
     @action(detail=False, methods=['get'])
     def students_without_parent(self, request):
@@ -857,7 +861,8 @@ class ParentManagementViewSet(viewsets.ViewSet):
         from accounts.models import ParentStudent
 
         linked_student_ids = ParentStudent.objects.filter(
-            parent__school=request.user.school
+            student__school=request.user.school,
+            parent__role='PARENT',
         ).values_list('student_id', flat=True)
 
         students = Student.objects.filter(
@@ -916,13 +921,25 @@ class ParentManagementViewSet(viewsets.ViewSet):
 
         existing = UserModel.objects.filter(email=email).first()
         if existing:
-            # Email already has an account — just ensure the link exists
-            link, created = ParentStudent.objects.get_or_create(
+            # Do NOT change the stored role — a teacher/staff member may share the
+            # same email as a parent.  The parent_login endpoint allows login for any
+            # user that has ParentStudent links, returning role='PARENT' in the
+            # response regardless of the stored role.
+            #
+            # Only adopt the school if the user has no school assigned yet.
+            if not existing.school:
+                existing.school = request.user.school
+                existing.save(update_fields=['school'])
+
+            link, _ = ParentStudent.objects.get_or_create(
                 parent=existing, student=student,
                 defaults={'relationship': relationship, 'is_primary_guardian': True}
             )
+            note = ''
+            if existing.role not in ('PARENT',):
+                note = f' Note: this email belongs to a {existing.role} account — they can still log in via the parent portal.'
             return Response({
-                'message': 'Parent account already exists. Child linked.',
+                'message': f'Account linked as parent.{note}',
                 'parent_id': existing.id,
                 'email': existing.email,
                 'generated_password': None,
@@ -950,102 +967,6 @@ class ParentManagementViewSet(viewsets.ViewSet):
             'email': parent.email,
             'generated_password': raw_password,
         }, status=status.HTTP_201_CREATED)
-
-
-class StaffPermissionViewSet(viewsets.ModelViewSet):
-    serializer_class = StaffPermissionSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        if not user.school:
-            return StaffPermission.objects.none()
-        return StaffPermission.objects.filter(school=user.school).select_related('teacher').prefetch_related('collect_fee_types', 'cover_classes')
-
-    def _require_admin(self, user):
-        if user.role not in ('SCHOOL_ADMIN', 'PRINCIPAL'):
-            return Response({'error': 'Admin access required.'}, status=status.HTTP_403_FORBIDDEN)
-        return None
-
-    def perform_create(self, serializer):
-        serializer.save(school=self.request.user.school)
-
-    def create(self, request, *args, **kwargs):
-        err = self._require_admin(request.user)
-        if err:
-            return err
-        return super().create(request, *args, **kwargs)
-
-    def update(self, request, *args, **kwargs):
-        err = self._require_admin(request.user)
-        if err:
-            return err
-        return super().update(request, *args, **kwargs)
-
-    def partial_update(self, request, *args, **kwargs):
-        kwargs['partial'] = True
-        return self.update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        err = self._require_admin(request.user)
-        if err:
-            return err
-        return super().destroy(request, *args, **kwargs)
-
-    @action(detail=False, methods=['get'], url_path='my-permissions')
-    def my_permissions(self, request):
-        user = request.user
-        if not user.school:
-            return Response({'detail': 'No school attached.'}, status=status.HTTP_404_NOT_FOUND)
-        try:
-            perm = StaffPermission.objects.prefetch_related('collect_fee_types', 'cover_classes').get(
-                school=user.school, teacher=user
-            )
-        except StaffPermission.DoesNotExist:
-            return Response({'detail': 'No staff permission record found.'}, status=status.HTTP_404_NOT_FOUND)
-        data = StaffPermissionSerializer(perm).data
-        data['school_fee_collection_enabled'] = perm.school.special_fee_collection_enabled
-        data['cover_class_ids'] = list(perm.cover_classes.values_list('id', flat=True))
-        data['cover_class_names'] = [{'id': c.id, 'name': c.full_name} for c in perm.cover_classes.all()]
-        data['collect_fee_type_ids'] = list(perm.collect_fee_types.values_list('id', flat=True))
-        return Response(data)
-
-    @action(detail=False, methods=['patch'], url_path='toggle-school-master')
-    def toggle_school_master(self, request):
-        err = self._require_admin(request.user)
-        if err:
-            return err
-        school = request.user.school
-        enabled = request.data.get('enabled')
-        if enabled is None:
-            return Response({'error': 'enabled field required.'}, status=status.HTTP_400_BAD_REQUEST)
-        school.special_fee_collection_enabled = bool(enabled)
-        school.save(update_fields=['special_fee_collection_enabled'])
-        return Response({'special_fee_collection_enabled': school.special_fee_collection_enabled})
-
-    @action(detail=True, methods=['patch'], url_path='toggle')
-    def toggle_teacher(self, request, pk=None):
-        err = self._require_admin(request.user)
-        if err:
-            return err
-        perm = self.get_object()
-        enabled = request.data.get('fee_collection_enabled')
-        if enabled is None:
-            return Response({'error': 'fee_collection_enabled field required.'}, status=status.HTTP_400_BAD_REQUEST)
-        perm.fee_collection_enabled = bool(enabled)
-        perm.save(update_fields=['fee_collection_enabled'])
-        return Response({'fee_collection_enabled': perm.fee_collection_enabled})
-
-    @action(detail=False, methods=['get'], url_path='teachers-list')
-    def teachers_list(self, request):
-        err = self._require_admin(request.user)
-        if err:
-            return err
-        UserModel = get_user_model()
-        teachers = UserModel.objects.filter(
-            school=request.user.school, role='TEACHER', is_active=True
-        ).order_by('first_name', 'last_name')
-        return Response([{'id': t.id, 'name': t.get_full_name() or t.username, 'email': t.email} for t in teachers])
 
 
 class StaffPermissionViewSet(viewsets.ModelViewSet):

@@ -1,304 +1,309 @@
-﻿{% load report_filters %}
+{% load report_filters %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terminal Report Sheet - {{ school.name }}</title>
+    <title>Terminal Report - {{ school.name }}</title>
     <style>
+        /* == Reset == */
         html { box-sizing: border-box; }
-        *, *:before, *:after { box-sizing: inherit; }
+        *, *::before, *::after { box-sizing: inherit; margin: 0; padding: 0; }
+
         body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            background-color: white;
-            color: #000;
-            font-size: 12px;
-            line-height: 1.3;
+            font-family: "Times New Roman", "Georgia", "Garamond", serif;
+            margin: 0; background: #fff; color: #111;
+            font-size: 11pt; line-height: 1.35;
+            -webkit-font-smoothing: antialiased;
         }
-        
-        /* Main container using table layout for proper height distribution */
+
+        /* == Page frame == */
         .report-container {
-            width: 100%;
-            height: 270mm;
-            display: table;
-            table-layout: fixed;
-            border-collapse: separate;
-            border-spacing: 0;
+            width: 100%; height: 270mm;
+            display: table; table-layout: fixed;
+            border-collapse: separate; border-spacing: 0;
         }
-        
-        .header-section {
-            display: table-row;
-            height: 15%;
-        }
-        
-        .content-section {
-            display: table-row;
-            height: 65%;
-        }
-        
-        .footer-section {
-            display: table-row;
-            height: 20%;
-        }
-        
-        .section-cell {
-            display: table-cell;
-            vertical-align: top;
-            padding: 0;
-        }
-        
-        .content-cell {
-            display: table-cell;
-            vertical-align: top;
-            position: relative;
-        }
-        
-        .footer-cell {
-            display: table-cell;
-            vertical-align: bottom;
-        }
-        
+        .header-section  { display: table-row; height: 17%; }
+        .content-section { display: table-row; height: 60%; }
+        .footer-section  { display: table-row; height: 23%; }
+        .section-cell  { display: table-cell; vertical-align: top; padding: 0; }
+        .content-cell  { display: table-cell; vertical-align: top; position: relative; }
+        .footer-cell   { display: table-cell; vertical-align: bottom; }
+
+        /* == Watermark == */
         .watermark {
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            margin: auto;
-            width: 300px;
-            height: 300px;
-            opacity: 0.05;
-            pointer-events: none;
-            background-size: contain;
-            background-repeat: no-repeat;
-            background-position: center;
-            z-index: 1;
+            top: 0; right: 0; bottom: 0; left: 0;
+            margin: auto; width: 260px; height: 260px;
+            opacity: .04; pointer-events: none;
+            background-size: contain; background-repeat: no-repeat;
+            background-position: center; z-index: 1;
         }
         .watermark.default {
             background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect x="95" y="10" width="10" height="180" fill="%23000"/><rect x="10" y="95" width="180" height="10" fill="%23000"/><circle cx="100" cy="100" r="85" fill="none" stroke="%23000" stroke-width="6"/></svg>') center/contain no-repeat;
         }
-        
-        .report-main-header {
-            margin-bottom: 15px;
-            border: 2px solid #000;
-            padding: 15px 20px;
-        }
-        .header-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .header-logo-left, .header-logo-right {
-            width: 80px;
-            text-align: center;
-            vertical-align: middle;
-        }
-        .header-center {
-            text-align: center;
-            vertical-align: middle;
-            padding: 0 15px;
-        }
-        .school-logo {
-            width: 60px;
-            height: 60px;
-            border: 2px solid #000;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 8px;
-            font-weight: bold;
-            background: #fff;
-            overflow: hidden;
-            margin: 0 auto;
-        }
-        .school-logo img {width:100%;height:100%;object-fit:contain;}
 
-        .header-center h1 {
-            margin: 0;
-            font-size: 16px;
-            font-weight: bold;
-            text-transform: uppercase;
-            line-height: 1.2;
-            margin-bottom: 5px;
+        /* == Header == */
+        .report-main-header {
+            border: 2.5pt solid #0d1b4a;
+            border-radius: 3pt;
+            padding: 10pt 14pt 8pt;
+            margin-bottom: 6pt;
+            background: linear-gradient(180deg, #f5f6fc 0%, #fff 100%);
         }
-        .header-center h2 {
-            margin: 5px 0;
-            font-size: 14px;
-            font-weight: bold;
-            text-transform: uppercase;
-            color: #000;
+        .header-table { width: 100%; border-collapse: collapse; }
+        .header-logo-left,
+        .header-logo-right { width: 68pt; text-align: center; vertical-align: middle; }
+        .header-center { text-align: center; vertical-align: middle; padding: 0 10pt; }
+        .school-logo {
+            width: 58pt; height: 58pt;
+            border: 1.5pt solid #0d1b4a; border-radius: 50%;
+            overflow: hidden; margin: 0 auto; background: #fff;
+            display: flex; align-items: center; justify-content: center;
         }
-        .header-center p {
-            margin: 2px 0;
-            font-size: 10px;
-            text-align: center;
+        .school-logo img { width: 100%; height: 100%; object-fit: contain; }
+
+        .header-center .ges-label {
+            font-family: "Times New Roman", serif;
+            font-size: 11pt; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 2.5pt;
+            color: #0d1b4a; margin-bottom: 1pt; line-height: 1.15;
         }
-        
+        .header-center .school-name {
+            font-family: "Times New Roman", serif;
+            font-size: 14pt; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 1pt;
+            color: #111; margin: 2pt 0; line-height: 1.2;
+        }
+        .header-center .motto {
+            font-size: 8.5pt; font-style: italic;
+            color: #444; margin: 1pt 0; letter-spacing: 0.3pt;
+        }
+        .header-center .contact-info {
+            font-size: 7.5pt; color: #555; margin: 1pt 0;
+            font-family: Arial, Helvetica, sans-serif;
+            letter-spacing: 0.2pt;
+        }
+        .header-center .divider-line {
+            width: 60%; height: 1.5pt; background: #0d1b4a;
+            margin: 4pt auto 2pt; border-radius: 1pt;
+        }
+
+        /* == Title bar == */
         .terminal-report-header {
-            background: #000;
-            color: white;
-            text-align: center;
-            padding: 10px;
-            margin: 10px 0;
-            font-weight: bold;
-            font-size: 14px;
-            text-transform: uppercase;
-            border-radius: 4px;
+            background: #0d1b4a; color: #fff;
+            text-align: center; padding: 5pt 10pt;
+            margin: 4pt 0 6pt;
+            font-size: 11pt; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 4pt;
+            font-family: "Times New Roman", serif;
         }
-        
+
+        /* == Student info == */
         .student-info {
-            margin: 10px 0;
-            padding: 10px 20px;
-            background: #fafafa;
+            margin: 0 0 5pt;
+            border: 1.5pt solid #0d1b4a;
+            border-radius: 2pt;
+            background: #fff;
         }
-        
-        .scores-wrapper {
-            height: 100%;
-            position: relative;
-            z-index: 2;
-        }
-        
-        .table-wrap {
-            width: 100%;
-            height: 100%;
-            border: 2px solid #000;
-            border-radius: 6px;
-            overflow: hidden;
-        }
-        
-        .scores-table {
-            width: 100%;
-            height: 100%;
-            border-collapse: collapse;
-            font-size: 10px;
+        .student-info-table {
+            width: 100%; border-collapse: collapse;
             table-layout: fixed;
         }
-        
+        /* 6 columns: label(14%) value(20%) label(14%) value(20%) label(14%) value(18%) */
+        .student-info-table col.lbl { width: 14%; }
+        .student-info-table col.val { width: 20%; }
+        .student-info-table col.val-last { width: 18%; }
+        .student-info-table td {
+            padding: 4pt 8pt; vertical-align: middle;
+            border: 0.5pt solid #ddd;
+        }
+        .info-label {
+            font-size: 7pt; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.4pt;
+            color: #555; white-space: nowrap;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f7f8fc;
+        }
+        .info-value {
+            font-size: 10pt; font-weight: 700;
+            color: #0d1b4a;
+            font-family: "Times New Roman", serif;
+        }
+        .photo-cell {
+            text-align: center;
+            vertical-align: middle; padding: 4pt;
+            border-left: 1pt solid #ccc;
+            background: #fff;
+        }
+        .photo-frame {
+            width: 52pt; height: 64pt;
+            border: 1pt solid #333; background: #fff;
+            overflow: hidden; margin: 0 auto;
+        }
+        .photo-frame img { width: 100%; height: 100%; object-fit: cover; }
+        .photo-placeholder {
+            font-size: 5.5pt; color: #999; text-transform: uppercase;
+            line-height: 64pt; text-align: center;
+        }
+
+        /* == Scores table == */
+        .scores-wrapper { height: 100%; position: relative; z-index: 2; }
+        .table-wrap {
+            width: 100%; height: 100%;
+            border: 2pt solid #0d1b4a;
+            border-radius: 2pt; overflow: hidden;
+        }
+        .scores-table {
+            width: 100%; height: 100%;
+            border-collapse: collapse;
+            font-size: 10pt; table-layout: fixed;
+        }
         .scores-table th,
         .scores-table td {
-            border: 1px solid #000;
-            padding: 8px 6px;
-            text-align: center;
-            vertical-align: middle;
+            border: 0.5pt solid #666;
+            padding: 4pt 3pt;
+            text-align: center; vertical-align: middle;
         }
-        
-        .scores-table th {
-            background-color: #f0f0f0;
-            font-weight: bold;
-            font-size: 10px;
-            height: 40px;
+        .scores-table thead th {
+            background: #0d1b4a; color: #fff;
+            font-size: 8pt; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.3pt;
+            height: 34pt; border-color: #1a2a60;
+            font-family: Arial, Helvetica, sans-serif;
         }
-        
+        .scores-table thead th .sub-label {
+            font-weight: 400; font-size: 6.5pt;
+            display: block; opacity: 0.85;
+            letter-spacing: 0; margin-top: 1pt;
+        }
         .scores-table .subject-name {
-            text-align: left;
-            padding-left: 8px;
+            text-align: left; padding-left: 8pt;
+            font-weight: 600; font-size: 9.5pt;
         }
-        
-        .scores-table tbody tr {
-            height: calc((100% - 40px) / 20);
+        .scores-table tbody tr { height: calc((100% - 34pt) / 20); }
+        .scores-table tbody tr:nth-child(even) { background: #f4f5fa; }
+        .scores-table tbody td { font-size: 9.5pt; }
+
+        /* Total row */
+        .total-row {
+            background: #e3e6f0 !important;
+            font-weight: 700;
+            border-top: 1.5pt solid #0d1b4a !important;
         }
-        
-        .attendance-conduct {
-            font-size: 10px;
-            line-height: 1.4;
+        .total-row td { font-size: 9.5pt; font-weight: 700; }
+
+        /* == Footer == */
+        .attendance-conduct { font-size: 9pt; line-height: 1.4; }
+
+        .footer-info-row {
+            display: table; width: 100%;
+            border: 1pt solid #aaa; border-radius: 2pt;
+            margin: 3pt 0; font-size: 8pt;
+            background: #fafafa;
+        }
+        .footer-info-cell {
+            display: table-cell; padding: 3pt 8pt;
+            vertical-align: middle;
+            border-right: 0.5pt solid #ccc;
+        }
+        .footer-info-cell:last-child { border-right: none; }
+        .footer-info-label {
+            font-weight: 700; text-transform: uppercase;
+            font-size: 6.5pt; letter-spacing: 0.3pt; color: #555;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+        .footer-info-value {
+            font-weight: 700; color: #0d1b4a;
+            font-size: 8.5pt; margin-left: 2pt;
         }
 
         .remarks-row {
-            display: table;
-            width: 100%;
-            border-spacing: 10px 0;
-            margin: 4pt 0;
+            display: table; width: 100%;
+            border-spacing: 5pt 0; margin: 4pt 0;
         }
         .remarks-box {
-            display: table-cell;
-            width: 50%;
-            border: 1px solid #000;
-            padding: 4px 6px;
-            min-height: 32px;
-            vertical-align: top;
+            display: table-cell; width: 50%;
+            border: 1.5pt solid #999; border-radius: 2pt;
+            padding: 4pt 8pt; min-height: 32pt;
+            vertical-align: top; background: #fff;
         }
         .remarks-label {
-            font-weight: bold;
-            font-size: 8pt;
-            text-transform: uppercase;
-            margin-bottom: 2px;
+            font-weight: 700; font-size: 7pt;
+            text-transform: uppercase; letter-spacing: 0.3pt;
+            color: #444; margin-bottom: 2pt;
+            border-bottom: 0.5pt solid #ddd;
+            padding-bottom: 2pt;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+        .remarks-label .teacher-name {
+            font-weight: 400; font-size: 6.5pt;
+            color: #666; font-style: italic;
         }
         .remarks-text {
-            font-size: 8pt;
-            line-height: 1.2;
+            font-size: 8.5pt; line-height: 1.3;
+            color: #222; font-style: italic;
+            min-height: 16pt;
         }
-        
+
         .signature-section {
-            margin-top: 10px;
-            display: table;
-            width: 100%;
-            border-spacing: 6px 0;
+            margin-top: 6pt;
+            display: table; width: 100%;
+            border-spacing: 10pt 0;
         }
         .signature-box {
             display: table-cell;
-            text-align: center;
-            vertical-align: bottom;
+            text-align: center; vertical-align: bottom;
+            width: 33%;
         }
         .signature-line {
-            border-bottom: 2px solid #000;
-            height: 32px;
-            margin-bottom: 4px;
+            border-bottom: 1pt solid #333;
+            height: 22pt; margin-bottom: 2pt;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center bottom;
         }
         .signature-label {
-            font-size: 8px;
-            font-weight: bold;
-            text-transform: uppercase;
+            font-size: 7pt; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.3pt;
+            color: #333;
+            font-family: Arial, Helvetica, sans-serif;
         }
         .signature-name {
-            font-size: 7px;
-            color: #333;
+            font-size: 6.5pt; color: #555;
+            font-style: italic; margin-top: 1pt;
         }
-        
-        /* PDF Print Styles */
-        @page {
-            size: A4;
-            margin: 12mm 15mm;
-        }
-        
+
+        /* == Print styles == */
+        @page { size: A4; margin: 10mm 12mm; }
+
         @media print {
-            * { -webkit-print-color-adjust: exact !important; }
-            
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
             html, body {
-                width: 100% !important;
-                height: 100% !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                font-family: Arial, sans-serif !important;
+                width: 100% !important; height: 100% !important;
+                margin: 0 !important; padding: 0 !important;
                 background: white !important;
-                color: #000 !important;
             }
-            
-            .report-container {
-                width: 100% !important;
-                height: 270mm !important;
-                display: table !important;
-                table-layout: fixed !important;
-                border-collapse: separate !important;
-                border-spacing: 0 !important;
-            }
-            
-            .header-section { display: table-row !important; height: 15% !important; }
-            .content-section { display: table-row !important; height: 65% !important; }
-            .footer-section  { display: table-row !important; height: 20% !important; }
-            
-            .section-cell, .content-cell, .footer-cell {
-                display: table-cell !important;
-                vertical-align: top !important;
-            }
+            .report-container { width: 100% !important; height: 270mm !important; display: table !important; table-layout: fixed !important; }
+            .header-section  { display: table-row !important; height: 17% !important; }
+            .content-section { display: table-row !important; height: 60% !important; }
+            .footer-section  { display: table-row !important; height: 23% !important; }
+            .section-cell, .content-cell, .footer-cell { display: table-cell !important; }
             .footer-cell { vertical-align: bottom !important; }
-            
             .scores-wrapper { height: 100% !important; position: relative !important; }
-            .table-wrap { width: 100% !important; height: 100% !important; border: 2px solid #000 !important; overflow: hidden !important; }
-            .scores-table { width: 100% !important; height: 100% !important; border-collapse: collapse !important; font-size: 9px !important; table-layout: fixed !important; }
-            .scores-table th, .scores-table td { border: 1px solid #000 !important; padding: 6px 4px !important; }
-            .scores-table th { background-color: #f0f0f0 !important; font-size: 9px !important; height: 35px !important; }
-            .scores-table tbody tr { height: calc((100% - 35px) / 20) !important; }
+            .table-wrap { width: 100% !important; height: 100% !important; border: 2pt solid #0d1b4a !important; overflow: hidden !important; }
+            .scores-table { width: 100% !important; height: 100% !important; border-collapse: collapse !important; font-size: 9pt !important; table-layout: fixed !important; }
+            .scores-table th, .scores-table td { border: 0.5pt solid #666 !important; padding: 3pt 2pt !important; }
+            .scores-table thead th { background: #0d1b4a !important; color: #fff !important; font-size: 7.5pt !important; height: 30pt !important; }
+            .scores-table tbody tr { height: calc((100% - 30pt) / 20) !important; }
+            .scores-table tbody tr:nth-child(even) { background: #f4f5fa !important; }
+            .total-row { background: #e3e6f0 !important; }
+            .report-main-header { border-color: #0d1b4a !important; }
+            .terminal-report-header { background: #0d1b4a !important; }
+            .student-info { border-color: #0d1b4a !important; }
+            .student-info-table { table-layout: fixed !important; }
+            .student-info-table td { border: 0.5pt solid #ddd !important; padding: 3pt 6pt !important; }
+            .info-label { background: #f7f8fc !important; }
         }
     </style>
 </head>
@@ -314,117 +319,85 @@
                                 <div class="school-logo">
                                     {% if school.logo %}
                                         {% if school_logo_absolute %}
-                                            <img src="{{ school_logo_absolute }}" alt="School Logo">
+                                            <img src="{{ school_logo_absolute }}" alt="Logo">
                                         {% else %}
-                                            <img src="{{ media_url_base }}{{ school.logo.url }}" alt="School Logo">
+                                            <img src="{{ media_url_base }}{{ school.logo.url }}" alt="Logo">
                                         {% endif %}
-                                    {% else %}LOGO{% endif %}
+                                    {% else %}
+                                        <span style="font-size:7pt;color:#999;text-transform:uppercase;">Logo</span>
+                                    {% endif %}
                                 </div>
                             </td>
                             <td class="header-center">
-                                <h1>GHANA EDUCATION SERVICE</h1>
-                                <h2>{{ school.name|upper }}</h2>
-                                {% if school.motto %}<p style="font-style:italic;">{{ school.motto }}</p>{% endif %}
-                                <p>
+                                <div class="ges-label">Ghana Education Service</div>
+                                <div class="divider-line"></div>
+                                <div class="school-name">{{ school.name|upper }}</div>
+                                {% if school.motto %}<p class="motto">&ldquo;{{ school.motto }}&rdquo;</p>{% endif %}
+                                <p class="contact-info">
                                     {% if school.address %}{{ school.address }}{% endif %}
-                                    {% if school.phone_number %} | +{{ school.phone_number }}{% endif %}
+                                    {% if school.phone_number %} &bull; Tel: {{ school.phone_number }}{% endif %}
+                                    {% if school.email %} &bull; {{ school.email }}{% endif %}
                                 </p>
-                                {% if school.email %}<p>Email: {{ school.email }}</p>{% endif %}
                             </td>
                             <td class="header-logo-right">
                                 <div class="school-logo">
                                     {% if school.logo %}
                                         {% if school_logo_absolute %}
-                                            <img src="{{ school_logo_absolute }}" alt="School Logo">
+                                            <img src="{{ school_logo_absolute }}" alt="Logo">
                                         {% else %}
-                                            <img src="{{ media_url_base }}{{ school.logo.url }}" alt="School Logo">
+                                            <img src="{{ media_url_base }}{{ school.logo.url }}" alt="Logo">
                                         {% endif %}
-                                    {% else %}LOGO{% endif %}
+                                    {% else %}
+                                        <span style="font-size:7pt;color:#999;text-transform:uppercase;">Logo</span>
+                                    {% endif %}
                                 </div>
                             </td>
                         </tr>
                     </table>
                 </div>
-                
-                <div class="terminal-report-header">
-                    TERMINAL REPORT SHEET
-                </div>
-                
+
+                <div class="terminal-report-header">Terminal Report Sheet</div>
+
+                <!-- Student Information Grid -->
                 <div class="student-info">
-                    <table style="width:100%;border-collapse:collapse;border:none;">
+                    <table class="student-info-table">
+                        <colgroup>
+                            <col class="lbl"><col class="val">
+                            <col class="lbl"><col class="val">
+                            <col class="lbl"><col class="val-last">
+                        </colgroup>
                         <tr>
-                        <!-- LEFT column -->
-                        <td style="width:{% if school.show_student_photos %}27%{% else %}33%{% endif %};vertical-align:top;padding-right:8px;">
-                            <div style="margin:1pt 0;font-size:8pt;font-weight:bold;color:#555;">NAME:</div>
-                            <div style="margin:1pt 0 4pt;font-size:10pt;font-weight:bold;color:#1a237e;">
-                                {{ student.get_full_name|upper|default:"Sample Student" }}
-                            </div>
-                            <div style="margin:3pt 0 1pt;font-size:8pt;font-weight:bold;color:#555;">ACADEMIC YEAR:</div>
-                            <div style="margin:1pt 0 4pt;font-size:10pt;font-weight:bold;color:#1a237e;">
-                                {{ term.academic_year.name|default:"2023/2024" }}
-                            </div>
-                            <div style="margin:3pt 0 1pt;font-size:8pt;font-weight:bold;color:#555;">CLASS TEACHER:</div>
-                            <div style="margin:1pt 0;font-size:10pt;font-weight:bold;color:#1a237e;">
-                                {{ class_teacher_name|default:"—" }}
-                            </div>
-                        </td>
-                        <!-- CENTER column -->
-                        <td style="width:{% if school.show_student_photos %}27%{% else %}34%{% endif %};vertical-align:top;padding:0 8px;">
-                            <div style="margin:1pt 0;font-size:8pt;font-weight:bold;color:#555;">CLASS:</div>
-                            <div style="margin:1pt 0 4pt;font-size:10pt;font-weight:bold;color:#1a237e;">
-                                {{ student.current_class.name|default:"BASIC 7A"|upper }}
-                            </div>
-                            <div style="margin:3pt 0 1pt;font-size:8pt;font-weight:bold;color:#555;">TERM:</div>
-                            <div style="margin:1pt 0 4pt;font-size:10pt;font-weight:bold;color:#1a237e;">
-                                {{ term.name|upper|default:"THREE (3)" }}
-                            </div>
-                            <div style="margin:3pt 0 1pt;font-size:8pt;font-weight:bold;color:#555;">CLOSING DATE:</div>
-                            <div style="margin:1pt 0;font-size:10pt;font-weight:bold;color:#1a237e;">
-                                {% if school.term_closing_date %}{{ school.term_closing_date }}{% else %}—{% endif %}
-                            </div>
-                        </td>
-                        <!-- RIGHT column -->
-                        <td style="width:{% if school.show_student_photos %}27%{% else %}33%{% endif %};vertical-align:top;padding:0 8px;">
-                            <div style="margin:1pt 0;font-size:8pt;font-weight:bold;color:#555;">CLASS NO:</div>
-                            <div style="margin:1pt 0 4pt;font-size:10pt;font-weight:bold;color:#1a237e;">
-                                {{ student.student_id|default:"—" }}
-                            </div>
+                            <td class="info-label">Name of Pupil</td>
+                            <td class="info-value" colspan="3">{{ student.get_full_name|upper|default:"&#8212;" }}</td>
+                            <td class="info-label">Class</td>
+                            <td class="info-value">{% if student.current_class %}{{ student.current_class }}{% else %}&#8212;{% endif %}</td>
+                        </tr>
+                        <tr>
+                            <td class="info-label">Academic Year</td>
+                            <td class="info-value">{{ term.academic_year.name|default:"&#8212;" }}</td>
+                            <td class="info-label">Term</td>
+                            <td class="info-value">{{ term.get_name_display|default:term.name|upper }}</td>
+                            <td class="info-label">No. on Roll</td>
+                            <td class="info-value">{% if term_result.total_students %}{{ term_result.total_students }}{% else %}&#8212;{% endif %}</td>
+                        </tr>
+                        <tr>
+                            <td class="info-label">Class Teacher</td>
+                            <td class="info-value">{{ class_teacher_name|default:"&#8212;" }}</td>
                             {% if school.show_position_in_class %}
-                            <div style="margin:3pt 0 1pt;font-size:8pt;font-weight:bold;color:#555;">POSITION:</div>
-                            <div style="margin:1pt 0 4pt;font-size:10pt;font-weight:bold;color:#1a237e;">
-                                {% if term_result.class_position %}{{ term_result.class_position|ordinal }}{% else %}—{% endif %}
-                            </div>
+                            <td class="info-label">Position</td>
+                            <td class="info-value">{% if term_result.class_position %}{{ term_result.class_position|ordinal }}{% else %}&#8212;{% endif %}</td>
                             {% else %}
-                            <div style="margin:3pt 0 1pt;font-size:8pt;">&nbsp;</div>
-                            <div style="margin:1pt 0 4pt;font-size:10pt;">&nbsp;</div>
+                            <td class="info-label">Closing Date</td>
+                            <td class="info-value">{% if school.term_closing_date %}{{ school.term_closing_date }}{% else %}&#8212;{% endif %}</td>
                             {% endif %}
-                            <div style="margin:3pt 0 1pt;font-size:8pt;font-weight:bold;color:#555;">REOPENING DATE:</div>
-                            <div style="margin:1pt 0;font-size:10pt;font-weight:bold;color:#1a237e;">
-                                {% if school.term_reopening_date %}{{ school.term_reopening_date }}{% else %}—{% endif %}
-                            </div>
-                        </td>
-                        <!-- PHOTO column (conditional) -->
-                        {% if school.show_student_photos %}
-                        <td style="width:19%;vertical-align:middle;text-align:center;padding-left:8px;">
-                            <div style="width:55pt;height:70pt;border:1pt solid #000;background:white;text-align:center;font-size:6pt;line-height:70pt;overflow:hidden;margin:0 auto;">
-                                {% if student.photo %}
-                                    {% if student_photo_absolute %}
-                                        <img src="{{ student_photo_absolute }}" alt="{{ student.get_full_name }}" style="width:100%;height:100%;object-fit:cover;">
-                                    {% else %}
-                                        <img src="{{ media_url_base }}{{ student.photo.url }}" alt="{{ student.get_full_name }}" style="width:100%;height:100%;object-fit:cover;">
-                                    {% endif %}
-                                {% else %}
-                                    STUDENT<br>PHOTO
-                                {% endif %}
-                            </div>
-                        </td>
-                        {% endif %}
+                            <td class="info-label">Reopening</td>
+                            <td class="info-value">{% if school.term_reopening_date %}{{ school.term_reopening_date }}{% else %}&#8212;{% endif %}</td>
                         </tr>
                     </table>
                 </div>
             </td>
         </tr>
-        
+
         <!-- Content Section (Scores Table) -->
         <tr class="content-section">
             <td class="content-cell">
@@ -434,54 +407,52 @@
                     {% else %}
                     <div class="watermark default"></div>
                     {% endif %}
-                    
+
                     <div class="table-wrap">
                         <table class="scores-table">
                             <thead>
                                 <tr>
-                                    <th style="width:35%;">SUBJECTS</th>
-                                    <th style="width:13%;">Class Score<br>50%</th>
-                                    <th style="width:13%;">Exams Score<br>50%</th>
-                                    <th style="width:13%;">Total Score<br>100%</th>
-                                    {% if school.show_position_in_class %}<th style="width:13%;">Position</th>{% endif %}
-                                    <th style="width:13%;">Remarks</th>
+                                    <th style="width:34%;">Subject</th>
+                                    <th style="width:13%;">Class Score<span class="sub-label">(50%)</span></th>
+                                    <th style="width:13%;">Exam Score<span class="sub-label">(50%)</span></th>
+                                    <th style="width:13%;">Total<span class="sub-label">(100%)</span></th>
+                                    {% if school.show_position_in_class %}<th style="width:10%;">Pos.</th>{% endif %}
+                                    <th style="width:{% if school.show_position_in_class %}17{% else %}27{% endif %}%;">Grade / Remark</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for subject_result in subject_results %}
                                 <tr>
                                     <td class="subject-name">{{ subject_result.class_subject.subject.name|safe }}</td>
-                                    <td>{{ subject_result.ca_score|floatformat:1|default:"-" }}</td>
-                                    <td>{{ subject_result.exam_score|floatformat:1|default:"-" }}</td>
-                                    <td>{{ subject_result.total_score|floatformat:1|default:"-" }}</td>
-                                    {% if school.show_position_in_class %}<td>
-                                        {% if subject_result.position %}{{ subject_result.position|ordinal }}{% else %}-{% endif %}
-                                    </td>{% endif %}
+                                    <td>{{ subject_result.ca_score|floatformat:0|default:"-" }}</td>
+                                    <td>{{ subject_result.exam_score|floatformat:0|default:"-" }}</td>
+                                    <td><strong>{{ subject_result.total_score|floatformat:0|default:"-" }}</strong></td>
+                                    {% if school.show_position_in_class %}<td>{% if subject_result.position %}{{ subject_result.position|ordinal }}{% else %}-{% endif %}</td>{% endif %}
                                     <td>{{ subject_result.grade|default:"-" }}</td>
                                 </tr>
                                 {% empty %}
                                 <tr>
-                                    <td class="subject-name">English Language</td><td>42</td><td>38</td><td>80</td>
+                                    <td class="subject-name">English Language</td><td>42</td><td>38</td><td><strong>80</strong></td>
                                     {% if school.show_position_in_class %}<td>3rd</td>{% endif %}<td>Very Good</td>
                                 </tr>
                                 <tr>
-                                    <td class="subject-name">Mathematics</td><td>45</td><td>40</td><td>85</td>
+                                    <td class="subject-name">Mathematics</td><td>45</td><td>40</td><td><strong>85</strong></td>
                                     {% if school.show_position_in_class %}<td>2nd</td>{% endif %}<td>Excellent</td>
                                 </tr>
                                 <tr>
-                                    <td class="subject-name">Integrated Science</td><td>40</td><td>35</td><td>75</td>
+                                    <td class="subject-name">Integrated Science</td><td>40</td><td>35</td><td><strong>75</strong></td>
                                     {% if school.show_position_in_class %}<td>5th</td>{% endif %}<td>Very Good</td>
                                 </tr>
                                 <tr>
-                                    <td class="subject-name">Social Studies</td><td>41</td><td>36</td><td>77</td>
+                                    <td class="subject-name">Social Studies</td><td>41</td><td>36</td><td><strong>77</strong></td>
                                     {% if school.show_position_in_class %}<td>6th</td>{% endif %}<td>Very Good</td>
                                 </tr>
                                 <tr>
-                                    <td class="subject-name">Religious &amp; Moral Edu.</td><td>44</td><td>41</td><td>85</td>
+                                    <td class="subject-name">Religious &amp; Moral Edu.</td><td>44</td><td>41</td><td><strong>85</strong></td>
                                     {% if school.show_position_in_class %}<td>1st</td>{% endif %}<td>Excellent</td>
                                 </tr>
                                 {% endfor %}
-                                
+
                                 {% for i in empty_rows %}
                                 <tr>
                                     <td class="subject-name">&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
@@ -489,14 +460,14 @@
                                     <td>&nbsp;</td>
                                 </tr>
                                 {% endfor %}
-                                
-                                <tr style="background-color:#f0f0f0;font-weight:bold;border-top:2px solid #000;">
-                                    <td class="subject-name">TOTAL MARKS</td>
-                                    <td>{{ total_marks_ca|floatformat:1|default:"0" }}</td>
-                                    <td>{{ total_marks_exam|floatformat:1|default:"0" }}</td>
-                                    <td>{{ total_marks_overall|floatformat:1|default:"0" }}</td>
-                                    {% if school.show_position_in_class %}<td>-</td>{% endif %}
-                                    <td>
+
+                                <tr class="total-row">
+                                    <td class="subject-name" style="text-transform:uppercase;font-size:9pt;">Total / Aggregate</td>
+                                    <td>{{ total_marks_ca|floatformat:0|default:"0" }}</td>
+                                    <td>{{ total_marks_exam|floatformat:0|default:"0" }}</td>
+                                    <td><strong>{{ total_marks_overall|floatformat:0|default:"0" }}</strong></td>
+                                    {% if school.show_position_in_class %}<td>&mdash;</td>{% endif %}
+                                    <td style="font-size:8pt;">
                                         {% if term_result.average_score >= 80 %}Excellent
                                         {% elif term_result.average_score >= 70 %}Very Good
                                         {% elif term_result.average_score >= 60 %}Good
@@ -510,62 +481,69 @@
                 </div>
             </td>
         </tr>
-        
+
         <!-- Footer Section -->
         <tr class="footer-section">
             <td class="footer-cell">
                 <div class="attendance-conduct">
-                    <!-- Attendance & Promotion row -->
                     {% if school.show_attendance %}
-                    <div style="margin:2pt 0;font-size:9pt;font-weight:bold;">
-                        ATTENDANCE:
-                        {% if attendance.days_present %}{{ attendance.days_present }}{% else %}—{% endif %}
-                        &nbsp;OUT OF:&nbsp;
-                        {% if attendance.total_days %}{{ attendance.total_days }}{% else %}—{% endif %}
+                    <div class="footer-info-row">
+                        <div class="footer-info-cell">
+                            <span class="footer-info-label">Attendance:</span>
+                            <span class="footer-info-value">
+                                {% if attendance.days_present %}{{ attendance.days_present }}{% else %}&#8212;{% endif %}
+                                out of
+                                {% if attendance.total_days %}{{ attendance.total_days }}{% else %}&#8212;{% endif %} days
+                            </span>
+                        </div>
                         {% if school.show_promotion_on_terminal %}
-                        &nbsp;&nbsp;&nbsp;
-                        PROMOTED TO: {% if term_result.promoted %}NEXT CLASS{% else %}REPEAT{% endif %}
+                        <div class="footer-info-cell" style="text-align:right;">
+                            <span class="footer-info-label">Promoted to:</span>
+                            <span class="footer-info-value">{% if term_result.promoted %}Next Class{% else %}Repeat{% endif %}</span>
+                        </div>
                         {% endif %}
                     </div>
                     {% endif %}
-                    
-                    <!-- Conduct / Attitude / Interest row -->
+
                     {% if school.show_behavior_comments %}
-                    <div style="margin:2pt 0;font-size:9pt;font-weight:bold;">
-                        CONDUCT: {% if behaviour.conduct %}{{ behaviour.get_conduct_display }}{% else %}—{% endif %}
-                        &nbsp;&nbsp;
-                        ATTITUDE: {% if behaviour.attitude %}{{ behaviour.get_attitude_display }}{% else %}—{% endif %}
-                        &nbsp;&nbsp;
-                        INTEREST: {% if behaviour.interest %}{{ behaviour.interest }}{% else %}—{% endif %}
-                        &nbsp;&nbsp;
-                        PUNCTUALITY: {% if behaviour.punctuality %}{{ behaviour.get_punctuality_display }}{% else %}—{% endif %}
+                    <div class="footer-info-row">
+                        <div class="footer-info-cell">
+                            <span class="footer-info-label">Conduct:</span>
+                            <span class="footer-info-value">{% if behaviour.conduct %}{{ behaviour.get_conduct_display }}{% else %}&#8212;{% endif %}</span>
+                        </div>
+                        <div class="footer-info-cell">
+                            <span class="footer-info-label">Attitude:</span>
+                            <span class="footer-info-value">{% if behaviour.attitude %}{{ behaviour.get_attitude_display }}{% else %}&#8212;{% endif %}</span>
+                        </div>
+                        <div class="footer-info-cell">
+                            <span class="footer-info-label">Interest:</span>
+                            <span class="footer-info-value">{% if behaviour.interest %}{{ behaviour.interest }}{% else %}&#8212;{% endif %}</span>
+                        </div>
+                        <div class="footer-info-cell">
+                            <span class="footer-info-label">Punctuality:</span>
+                            <span class="footer-info-value">{% if behaviour.punctuality %}{{ behaviour.get_punctuality_display }}{% else %}&#8212;{% endif %}</span>
+                        </div>
                     </div>
                     {% endif %}
-                    
-                    <!-- Remarks side-by-side -->
+
                     <div class="remarks-row">
                         <div class="remarks-box">
-                            <div class="remarks-label">Class Teacher's Remarks <span style="font-weight:normal;font-size:7pt;">({{ class_teacher_name|default:"" }})</span>:</div>
-                            <div class="remarks-text">
-                                {% if behaviour.class_teacher_remarks %}{{ behaviour.class_teacher_remarks }}{% else %}&nbsp;{% endif %}
-                            </div>
+                            <div class="remarks-label">Class Teacher&#8217;s Remarks{% if class_teacher_name %} <span class="teacher-name">({{ class_teacher_name }})</span>{% endif %}</div>
+                            <div class="remarks-text">{% if behaviour.class_teacher_remarks %}{{ behaviour.class_teacher_remarks }}{% else %}&nbsp;{% endif %}</div>
                         </div>
                         {% if school.show_headteacher_signature %}
                         <div class="remarks-box">
-                            <div class="remarks-label">Head Teacher's Remarks:</div>
-                            <div class="remarks-text">
-                                {% if behaviour.headmaster_remarks %}{{ behaviour.headmaster_remarks }}{% else %}&nbsp;{% endif %}
-                            </div>
+                            <div class="remarks-label">Head Teacher&#8217;s Remarks</div>
+                            <div class="remarks-text">{% if behaviour.headmaster_remarks %}{{ behaviour.headmaster_remarks }}{% else %}&nbsp;{% endif %}</div>
                         </div>
                         {% endif %}
                     </div>
-                    
-                    <!-- Signatures -->
+
                     <div class="signature-section">
                         {% if school.class_teacher_signature_required %}
                         <div class="signature-box">
                             {% if school.principal_signature %}
-                            <div class="signature-line" style="background-image:url('{{ media_url_base }}{{ school.principal_signature.url }}');background-size:contain;background-repeat:no-repeat;background-position:center;"></div>
+                            <div class="signature-line" style="background-image:url('{{ media_url_base }}{{ school.principal_signature.url }}');"></div>
                             {% else %}
                             <div class="signature-line"></div>
                             {% endif %}
@@ -576,14 +554,14 @@
                         {% if school.show_headteacher_signature %}
                         <div class="signature-box">
                             <div class="signature-line"></div>
-                            <div class="signature-label">Head Teacher / Principal</div>
+                            <div class="signature-label">Head Teacher</div>
                         </div>
                         {% endif %}
                         <div class="signature-box">
                             <div class="signature-line"></div>
                             <div class="signature-label">Parent / Guardian</div>
                             {% if school.term_reopening_date %}
-                            <div class="signature-name">Reopen: {{ school.term_reopening_date }}</div>
+                            <div class="signature-name">Reopening: {{ school.term_reopening_date }}</div>
                             {% endif %}
                         </div>
                     </div>

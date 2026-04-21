@@ -132,10 +132,27 @@ def _generate_pdf_pdfkit(html_content):
 
 
 def _generate_professional_pdf(html_content):
-    """Generate professional full-page PDF using wkhtmltopdf
+    """Generate professional full-page PDF.
     
-    Ensures content fills entire A4 page naturally without compression.
+    Tries wkhtmltopdf first (best quality), falls back to WeasyPrint
+    if wkhtmltopdf is not available (e.g. on Render/Railway deployment).
     """
+    try:
+        return _generate_pdf_wkhtmltopdf(html_content)
+    except Exception as e:
+        print(f"wkhtmltopdf failed ({e}), falling back to WeasyPrint...")
+        return _generate_pdf_weasyprint(html_content)
+
+
+def _generate_pdf_weasyprint(html_content):
+    """Generate PDF using WeasyPrint (pure Python, no external binary needed)."""
+    import weasyprint
+    pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
+    return pdf_bytes
+
+
+def _generate_pdf_wkhtmltopdf(html_content):
+    """Generate PDF using wkhtmltopdf subprocess."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_html:
         temp_html.write(html_content)
         temp_html_path = temp_html.name

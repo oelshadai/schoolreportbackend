@@ -234,10 +234,16 @@ def parent_login(request):
         except User.DoesNotExist:
             return Response({'error': 'Invalid credentials'}, status=401)
 
-        if user.role != 'PARENT':
+        if not user.check_password(password):
             return Response({'error': 'Invalid credentials'}, status=401)
 
-        if not user.check_password(password):
+        # Allow login if the user is a PARENT, OR if they have ParentStudent links
+        # (e.g. a teacher who is also a guardian of a student at the school).
+        # We do NOT permanently change the stored role — we just return 'PARENT' in
+        # the response so the frontend routes to the parent portal.
+        from accounts.models import ParentStudent as PS
+        has_parent_links = PS.objects.filter(parent=user).exists()
+        if user.role != 'PARENT' and not has_parent_links:
             return Response({'error': 'Invalid credentials'}, status=401)
 
         try:
@@ -264,7 +270,9 @@ def parent_login(request):
                 'email': user.email,
                 'first_name': user.first_name or '',
                 'last_name': user.last_name or '',
-                'role': user.role,
+                # Always return PARENT role for this portal, regardless of the stored role
+                # (supports teachers / staff who are also guardians).
+                'role': 'PARENT',
                 'phone_number': user.phone_number or '',
                 'school': {'id': user.school.id, 'name': user.school.name} if user.school else None,
                 'children': children,

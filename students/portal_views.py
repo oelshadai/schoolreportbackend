@@ -9,6 +9,28 @@ def _get_student(request):
     return Student.objects.select_related('current_class', 'school').get(user=request.user)
 
 
+def _get_student_for_request(request):
+    """Resolve student for STUDENT and PARENT roles. Returns (student, error_response)."""
+    role = getattr(request.user, 'role', '')
+    if role == 'PARENT':
+        from accounts.models import ParentStudent
+        student_id = request.query_params.get('student_id', '').strip()
+        if not student_id:
+            from rest_framework.response import Response as R
+            return None, R({'error': 'student_id required for parent access'}, status=status.HTTP_400_BAD_REQUEST)
+        link = ParentStudent.objects.filter(
+            parent=request.user, student__student_id=student_id
+        ).select_related('student__current_class', 'student__school').first()
+        if not link:
+            from rest_framework.response import Response as R
+            return None, R({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+        return link.student, None
+    try:
+        return Student.objects.select_related('current_class', 'school').get(user=request.user), None
+    except Student.DoesNotExist:
+        return None, Response({'error': 'Student profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def student_classes(request):
@@ -184,10 +206,12 @@ def student_schedule(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def student_reports(request):
-    """Return the student's term results."""
+    """Return the student's term results (supports PARENT role with ?student_id=X)."""
     try:
         from scores.models import TermResult, SubjectResult
-        student = _get_student(request)
+        student, err = _get_student_for_request(request)
+        if err:
+            return err
         term_results = TermResult.objects.filter(
             student=student
         ).select_related('term', 'term__academic_year', 'class_instance').order_by('-term__start_date')
@@ -236,10 +260,12 @@ def student_reports(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def student_published_reports(request):
-    """Return the student's published report cards."""
+    """Return the student's published report cards (supports PARENT role with ?student_id=X)."""
     try:
         from reports.models import ReportCard
-        student = _get_student(request)
+        student, err = _get_student_for_request(request)
+        if err:
+            return err
         
         published_reports = ReportCard.objects.filter(
             student=student,
@@ -471,3 +497,87 @@ def view_student_published_report(request, term_id):
             f'</div>',
             status=500
         )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def student_fees(request):
+    """Return the student's term bills grouped by term, with payment history."""
+    try:
+        student = _get_student(request)
+        from fees.models import TermBill, FeePayment
+        from schools.models import Term
+
+        term_id = request.query_params.get('term')
+        bills_qs = TermBill.objects.filter(
+            student=student, school=student.school
+        ).select_related('fee_type', 'term', 'term__academic_year').order_by('-term__academic_year__start_date', '-term__name', 'fee_type__name')
+
+        if term_id:
+            bills_qs = bills_qs.filter(term_id=term_id)
+
+        bills_data = []
+        for bill in bills_qs:
+            bills_data.append({
+                'id': bill.id,
+                'term': {
+                    'id': bill.term.id,
+                    'name': bill.term.name,
+                    'academic_year': bill.term.academic_year.name if bill.term.academic_year else '',
+                },
+                'fee_type': {
+                    'id': bill.fee_type.id,
+                    'name': bill.fee_type.name,
+                },
+                'amount_billed': str(bill.amount_billed),
+                'amount_paid': str(bill.amount_paid),
+                'balance': str(bill.balance),
+                'status': bill.status,
+                'due_date': str(bill.due_date) if bill.due_date else None,
+            })
+
+        # Payment history
+        payments_qs = FeePayment.objects.filter(
+            student=student, school=student.school
+        ).select_related('fee_type').order_by('-payment_date')[:20]
+
+        payments_data = []
+        for p in payments_qs:
+            payments_data.append({
+                'id': p.id,
+                'fee_type': p.fee_type.name,
+                'amount_paid': str(p.amount_paid),
+                'payment_date': p.payment_date.isoformat(),
+                'payment_method': p.payment_method,
+                'reference_number': p.reference_number,
+                'is_verified': p.is_verified,
+            })
+
+        # Summary
+        from django.db.models import Sum
+        totals = bills_qs.aggregate(
+            total_billed=Sum('amount_billed'),
+            total_paid=Sum('amount_paid'),
+            total_balance=Sum('balance'),
+        )
+
+        # Available terms for filter
+        terms = Term.objects.filter(
+            academic_year__school=student.school
+        ).select_related('academic_year').order_by('-academic_year__start_date', '-name')
+        terms_data = [{'id': t.id, 'name': t.name, 'academic_year': t.academic_year.name} for t in terms]
+
+        return Response({
+            'bills': bills_data,
+            'payments': payments_data,
+            'summary': {
+                'total_billed': str(totals['total_billed'] or 0),
+                'total_paid': str(totals['total_paid'] or 0),
+                'total_balance': str(totals['total_balance'] or 0),
+            },
+            'terms': terms_data,
+        })
+    except Student.DoesNotExist:
+        return Response({'error': 'Student profile not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

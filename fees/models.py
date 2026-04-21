@@ -171,6 +171,13 @@ class FeePayment(models.Model):
         blank=True,
         related_name='verified_fee_payments'
     )
+    # For DAILY fees auto-recorded from attendance: the actual school day this covers.
+    # Used as the deduplication key so re-saving attendance never double-charges.
+    attendance_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text='For daily fees auto-recorded from attendance; the school day this covers.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

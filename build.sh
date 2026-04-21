@@ -2,8 +2,8 @@
 # Render build script for backend
 set -o errexit
 
-# Install wkhtmltopdf for PDF generation
-apt-get update && apt-get install -y wkhtmltopdf || true
+# Install wkhtmltopdf and WeasyPrint system dependencies for PDF generation
+apt-get update && apt-get install -y wkhtmltopdf libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 libffi-dev libcairo2 || true
 
 pip install -r requirements.txt
 

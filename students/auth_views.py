@@ -32,13 +32,26 @@ def student_login(request):
         try:
             student = Student.objects.select_related('user').get(student_id=student_id)
         except Student.DoesNotExist:
-            return Response({'error': 'Invalid credentials'}, status=401)
+            # Try case-insensitive fallback (some IDs may be typed in wrong case)
+            try:
+                student = Student.objects.select_related('user').get(student_id__iexact=student_id)
+            except Student.DoesNotExist:
+                return Response({'error': 'Invalid credentials'}, status=401)
 
         if not student.user:
             return Response({'error': 'Student account misconfigured'}, status=500)
 
         if not student.user.check_password(password):
-            return Response({'error': 'Invalid credentials'}, status=401)
+            # Fallback: compare against the plain-text password stored on the
+            # Student model.  This handles desync when an admin updated the
+            # student record (resetting the pin) but the User hash wasn't
+            # updated yet (pre-fix records).
+            if student.password and student.password == password:
+                # Passwords match via plain-text fallback — resync the hash now
+                student.user.set_password(password)
+                student.user.save(update_fields=['password'])
+            else:
+                return Response({'error': 'Invalid credentials'}, status=401)
 
         try:
             refresh = RefreshToken.for_user(student.user)

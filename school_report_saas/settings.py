@@ -268,7 +268,9 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000
 if os.name == 'nt':  # Windows
     WKHTMLTOPDF_CMD = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
 else:  # Linux/Unix
-    WKHTMLTOPDF_CMD = '/usr/local/bin/wkhtmltopdf'
+    # apt-get installs to /usr/bin, manual installs to /usr/local/bin
+    import shutil
+    WKHTMLTOPDF_CMD = shutil.which('wkhtmltopdf') or '/usr/bin/wkhtmltopdf'
 
 
 

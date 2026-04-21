@@ -200,6 +200,18 @@ class StudentFeeSubTypeViewSet(viewsets.ModelViewSet):
                 tier_label='',
             ).first()
 
+        # Today's already-collected payments for this fee type + class
+        from django.utils import timezone
+        today = timezone.localdate()
+        today_payments = {}
+        for p in FeePayment.objects.filter(
+            school=request.user.school,
+            fee_type=main_fee_type,
+            student__current_class_id=class_id,
+            payment_date__date=today,
+        ).values('student_id').annotate(paid_today=Sum('amount_paid')):
+            today_payments[p['student_id']] = float(p['paid_today'])
+
         result = []
         for student in students:
             assignment = assignments.get(student.id)
@@ -227,6 +239,7 @@ class StudentFeeSubTypeViewSet(viewsets.ModelViewSet):
                 'sub_fee_type_id': sub_fee.id if sub_fee else None,
                 'tier_label': tier_label,
                 'amount': amount,
+                'paid_today': today_payments.get(student.id, 0),
             })
 
         return Response(result)
@@ -429,9 +442,10 @@ class FeePaymentViewSet(viewsets.ModelViewSet):
             return Response({'error': 'You do not have permission to collect this fee type.'}, status=status.HTTP_403_FORBIDDEN)
 
         from django.utils import timezone
+        from decimal import Decimal
 
         recorded = 0
-        total_amount = 0.0
+        total_amount = Decimal('0')
 
         for entry in payments:
             student_pk = entry.get('student')
@@ -439,11 +453,11 @@ class FeePaymentViewSet(viewsets.ModelViewSet):
             if not student_pk or not amount:
                 continue
             try:
-                amount = float(amount)
+                amount = Decimal(str(amount))
                 if amount <= 0:
                     continue
                 student = Student.objects.get(id=student_pk, school=request.user.school)
-            except (Student.DoesNotExist, ValueError):
+            except (Student.DoesNotExist, ValueError, Exception):
                 continue
 
             # Create payment
@@ -461,11 +475,12 @@ class FeePaymentViewSet(viewsets.ModelViewSet):
             student_fee, _ = StudentFee.objects.get_or_create(
                 student=student,
                 school=request.user.school,
-                defaults={'total_amount': 0, 'amount_paid': 0, 'balance': 0},
+                defaults={'total_amount': Decimal('0'), 'amount_paid': Decimal('0'), 'balance': Decimal('0')},
             )
             student_fee.amount_paid += payment.amount_paid
             # Clamp balance to 0 — overpayments are not a debt
-            student_fee.balance = max(0, student_fee.total_amount - student_fee.amount_paid)
+            balance = student_fee.total_amount - student_fee.amount_paid
+            student_fee.balance = balance if balance > Decimal('0') else Decimal('0')
             student_fee.last_payment_date = timezone.now()
             if student_fee.total_amount > 0 and student_fee.balance <= 0:
                 student_fee.status = 'PAID'
@@ -476,7 +491,7 @@ class FeePaymentViewSet(viewsets.ModelViewSet):
             recorded += 1
             total_amount += amount
 
-        return Response({'recorded': recorded, 'total_amount': total_amount})
+        return Response({'recorded': recorded, 'total_amount': float(total_amount)})
 
 
 class FeeCollectionViewSet(viewsets.ModelViewSet):
@@ -573,17 +588,68 @@ class FeeReportViewSet(viewsets.ViewSet):
         """Get overall collection summary"""
         school = request.user.school
 
-        # Total fees billed (from TermBills — populated when bills are generated)
+        # --- Daily fee stats ---
+        # Collected: sum of payments whose fee_type is DAILY
+        daily_collected = FeePayment.objects.filter(
+            school=school,
+            fee_type__collection_frequency='DAILY',
+        ).aggregate(total=Sum('amount_paid'))['total'] or 0
+
+        # Expected daily fees: for each active DAILY fee type, sum the
+        # FeeStructure amount × number of active students at that level.
+        from django.db.models import IntegerField
+        from django.db.models.functions import Cast
+        from students.models import Student as StudentModel
+
+        daily_expected = 0
+        daily_fee_types = FeeType.objects.filter(
+            school=school,
+            collection_frequency='DAILY',
+            is_active=True,
+        )
+        for ft in daily_fee_types:
+            for structure in FeeStructure.objects.filter(school=school, fee_type=ft):
+                student_count = StudentModel.objects.filter(
+                    current_class__school=school,
+                    current_class__level=structure.level,
+                    is_active=True,
+                ).count()
+                # Expected = amount per day × total school days in current term × student count
+                current_term = school.current_term if hasattr(school, 'current_term') and school.current_term else None
+                if not current_term and hasattr(school, 'current_term_id') and school.current_term_id:
+                    from schools.models import Term as TermModel
+                    try:
+                        current_term = TermModel.objects.get(id=school.current_term_id)
+                    except TermModel.DoesNotExist:
+                        current_term = None
+                term_days = current_term.total_days if current_term and current_term.total_days > 0 else 0
+                daily_expected += float(structure.amount) * term_days * student_count
+
+        # --- Non-daily (term/year) stats from TermBills ---
+        non_daily_collected = FeePayment.objects.filter(
+            school=school,
+        ).exclude(
+            fee_type__collection_frequency='DAILY',
+        ).aggregate(total=Sum('amount_paid'))['total'] or 0
+
+        non_daily_outstanding = TermBill.objects.filter(
+            school=school,
+        ).exclude(
+            status='WAIVED',
+        ).exclude(
+            fee_type__collection_frequency='DAILY',
+        ).aggregate(total=Sum('balance'))['total'] or 0
+        non_daily_outstanding = max(0, float(non_daily_outstanding))
+
+        # Legacy totals kept for backwards-compat
         total_billed = TermBill.objects.filter(
             school=school
         ).aggregate(Sum('amount_billed'))['amount_billed__sum'] or 0
 
-        # Total collected via payments
         total_collected = FeePayment.objects.filter(
             school=school
         ).aggregate(Sum('amount_paid'))['amount_paid__sum'] or 0
 
-        # Outstanding from TermBills (never negative)
         total_outstanding = TermBill.objects.filter(
             school=school
         ).exclude(status='WAIVED').aggregate(
@@ -610,7 +676,6 @@ class FeeReportViewSet(viewsets.ViewSet):
             transactions=Count('id')
         )
 
-        # Total payment transactions count
         total_payment_count = FeePayment.objects.filter(school=school).count()
 
         return Response({
@@ -618,6 +683,11 @@ class FeeReportViewSet(viewsets.ViewSet):
             'total_outstanding': total_outstanding,
             'total_collected': float(total_collected),
             'total_payment_count': total_payment_count,
+            # New daily/non-daily breakdown
+            'daily_collected': float(daily_collected),
+            'daily_expected': float(daily_expected),
+            'non_daily_collected': float(non_daily_collected),
+            'non_daily_outstanding': float(non_daily_outstanding),
             'by_fee_type': list(by_fee_type),
             'by_collector': list(by_collector)
         })
@@ -675,6 +745,79 @@ class FeeReportViewSet(viewsets.ViewSet):
             'fee_summary': list(fee_summary),
             'payment_status': list(payment_status)
         })
+
+    @action(detail=False, methods=['get'])
+    def all_classes_summary(self, request):
+        """
+        Return every class in the school with daily-fee vs term/other-fee
+        collection totals so the admin can compare across classes at a glance.
+
+        Response shape:
+        [
+          {
+            "class_id": 3,
+            "class_name": "BS 9 A",
+            "level": "BS_9",
+            "section": "A",
+            "total_students": 32,
+            "daily_collected": 450.00,
+            "term_collected": 12000.00,
+            "total_collected": 12450.00
+          },
+          ...
+        ]
+        """
+        school = request.user.school
+
+        # All classes for this school ordered alphabetically
+        classes = Class.objects.filter(school=school).order_by('level', 'section')
+
+        # All payments for the school in one query, annotated with frequency
+        # We join through fee_type to get collection_frequency
+        payments_qs = FeePayment.objects.filter(school=school).select_related(
+            'student__current_class', 'fee_type'
+        )
+
+        # Build a dict: class_id -> {daily: Decimal, term: Decimal}
+        from decimal import Decimal
+        from collections import defaultdict
+        class_totals = defaultdict(lambda: {'daily': Decimal('0'), 'term': Decimal('0')})
+
+        for payment in payments_qs:
+            cls_obj = payment.student.current_class
+            if cls_obj is None:
+                continue
+            freq = payment.fee_type.collection_frequency if payment.fee_type else 'TERM'
+            bucket = 'daily' if freq == 'DAILY' else 'term'
+            class_totals[cls_obj.id][bucket] += payment.amount_paid
+
+        # Student counts per class
+        student_counts = {
+            row['current_class_id']: row['count']
+            for row in Student.objects.filter(
+                current_class__school=school
+            ).values('current_class_id').annotate(count=Count('id'))
+        }
+
+        result = []
+        for cls in classes:
+            totals = class_totals.get(cls.id, {'daily': Decimal('0'), 'term': Decimal('0')})
+            daily = float(totals['daily'])
+            term = float(totals['term'])
+            result.append({
+                'class_id': cls.id,
+                'class_name': cls.full_name if hasattr(cls, 'full_name') else f"{cls.level} {cls.section}".strip(),
+                'level': cls.level,
+                'section': cls.section,
+                'total_students': student_counts.get(cls.id, 0),
+                'daily_collected': daily,
+                'term_collected': term,
+                'total_collected': daily + term,
+            })
+
+        # Sort by total_collected descending
+        result.sort(key=lambda x: x['total_collected'], reverse=True)
+        return Response(result)
 
 
 # ---------------------------------------------------------------------------
@@ -838,3 +981,138 @@ class TermBillViewSet(viewsets.ModelViewSet):
             total_balance=Sum('balance'),
         )
         return Response(list(summary))
+
+    @action(detail=False, methods=['get'], url_path='my-bills')
+    def my_bills(self, request):
+        """
+        Student-facing: return the authenticated student's term bills
+        plus their daily fee payments, grouped by term.
+
+        Accessible by students and parents (parent sees child bills via
+        ?student_id=<id> if they are linked).
+        """
+        role = getattr(request.user, 'role', '')
+        school = request.user.school
+
+        # --- resolve which student we are looking at ---
+        if role == 'STUDENT':
+            try:
+                student = request.user.student_profile
+            except Exception:
+                return Response({'error': 'Student record not found'}, status=status.HTTP_404_NOT_FOUND)
+        elif role == 'PARENT':
+            from accounts.models import ParentStudent
+            student_id = request.query_params.get('student_id')
+            if not student_id:
+                return Response({'error': 'student_id required for parent access'}, status=status.HTTP_400_BAD_REQUEST)
+            # Verify child is linked to this parent
+            linked_ids = list(
+                ParentStudent.objects.filter(parent=request.user)
+                .values_list('student__student_id', flat=True)
+            )
+            if student_id not in linked_ids:
+                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+            try:
+                student = Student.objects.get(student_id=student_id, school=school)
+            except Student.DoesNotExist:
+                return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            return Response({'error': 'Not permitted'}, status=status.HTTP_403_FORBIDDEN)
+
+        # --- term bills (non-daily: TERM/YEAR fees) ---
+        bills_qs = TermBill.objects.filter(
+            student=student, school=school
+        ).select_related('fee_type', 'term', 'term__academic_year').order_by(
+            '-term__start_date', 'fee_type__name'
+        )
+
+        term_filter = request.query_params.get('term')
+        if term_filter:
+            bills_qs = bills_qs.filter(term_id=term_filter)
+
+        bills_data = []
+        for bill in bills_qs:
+            bills_data.append({
+                'id': bill.id,
+                'fee_type': bill.fee_type.name,
+                'fee_type_id': bill.fee_type_id,
+                'collection_frequency': bill.fee_type.collection_frequency,
+                'term': bill.term.get_name_display(),
+                'term_id': bill.term_id,
+                'academic_year': bill.term.academic_year.name,
+                'amount_billed': float(bill.amount_billed),
+                'amount_paid': float(bill.amount_paid),
+                'balance': float(bill.balance),
+                'status': bill.status,
+                'due_date': str(bill.due_date) if bill.due_date else None,
+            })
+
+        # --- daily fee payments summary ---
+        daily_payments = FeePayment.objects.filter(
+            student=student,
+            school=school,
+            fee_type__collection_frequency='DAILY',
+        ).select_related('fee_type').order_by('fee_type__name', '-attendance_date')
+
+        if term_filter:
+            # Daily payments don't have term FK; filter by date range of term
+            try:
+                from schools.models import Term as TermModel
+                t = TermModel.objects.get(id=term_filter)
+                daily_payments = daily_payments.filter(
+                    attendance_date__gte=t.start_date,
+                    attendance_date__lte=t.end_date,
+                )
+            except Exception:
+                pass
+
+        # Group by fee_type
+        from collections import defaultdict
+        daily_by_type: dict = defaultdict(lambda: {'total_paid': 0, 'days_paid': 0, 'payments': []})
+        for p in daily_payments:
+            key = p.fee_type.name
+            daily_by_type[key]['fee_type_id'] = p.fee_type_id
+            daily_by_type[key]['amount_per_day'] = float(p.amount_paid)  # last seen amount
+            daily_by_type[key]['total_paid'] += float(p.amount_paid)
+            daily_by_type[key]['days_paid'] += 1
+            daily_by_type[key]['payments'].append({
+                'date': str(p.attendance_date) if p.attendance_date else str(p.payment_date)[:10],
+                'amount': float(p.amount_paid),
+            })
+
+        daily_data = [
+            {
+                'fee_type': name,
+                'fee_type_id': v['fee_type_id'],
+                'collection_frequency': 'DAILY',
+                'days_paid': v['days_paid'],
+                'amount_per_day': v.get('amount_per_day', 0),
+                'total_paid': v['total_paid'],
+                'recent_payments': v['payments'][:10],
+            }
+            for name, v in daily_by_type.items()
+        ]
+
+        # --- totals ---
+        total_billed = sum(b['amount_billed'] for b in bills_data)
+        total_paid_bills = sum(b['amount_paid'] for b in bills_data)
+        total_balance = sum(b['balance'] for b in bills_data)
+        total_daily_paid = sum(d['total_paid'] for d in daily_data)
+
+        return Response({
+            'student': {
+                'id': student.id,
+                'name': f"{student.user.first_name} {student.user.last_name}",
+                'student_id': student.student_id,
+                'class': str(student.current_class) if student.current_class else '',
+            },
+            'term_bills': bills_data,
+            'daily_fees': daily_data,
+            'summary': {
+                'total_billed': total_billed,
+                'total_paid_bills': total_paid_bills,
+                'total_balance': total_balance,
+                'total_daily_paid': total_daily_paid,
+                'grand_total_paid': total_paid_bills + total_daily_paid,
+            },
+        })

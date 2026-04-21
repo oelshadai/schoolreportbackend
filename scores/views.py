@@ -93,12 +93,25 @@ class SubjectResultViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='my-results')
     def my_results(self, request):
-        """Return subject results for the logged-in student only"""
+        """Return subject results for the logged-in student (or a linked child for PARENT role)"""
         from students.models import Student
-        try:
-            student = Student.objects.get(user=request.user)
-        except Student.DoesNotExist:
-            return Response({'error': 'Student profile not found'}, status=404)
+        role = getattr(request.user, 'role', '')
+        if role == 'PARENT':
+            from accounts.models import ParentStudent
+            student_id = request.query_params.get('student_id', '').strip()
+            if not student_id:
+                return Response({'error': 'student_id required for parent access'}, status=404)
+            link = ParentStudent.objects.filter(
+                parent=request.user, student__student_id=student_id
+            ).select_related('student').first()
+            if not link:
+                return Response({'error': 'Access denied'}, status=403)
+            student = link.student
+        else:
+            try:
+                student = Student.objects.get(user=request.user)
+            except Student.DoesNotExist:
+                return Response({'error': 'Student profile not found'}, status=404)
 
         qs = SubjectResult.objects.filter(
             student=student
@@ -149,12 +162,25 @@ class TermResultViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='my-term-results')
     def my_term_results(self, request):
-        """Return all term results for the logged-in student"""
+        """Return all term results for the logged-in student (or a linked child for PARENT role)"""
         from students.models import Student
-        try:
-            student = Student.objects.get(user=request.user)
-        except Student.DoesNotExist:
-            return Response({'error': 'Student profile not found'}, status=404)
+        role = getattr(request.user, 'role', '')
+        if role == 'PARENT':
+            from accounts.models import ParentStudent
+            student_id = request.query_params.get('student_id', '').strip()
+            if not student_id:
+                return Response({'error': 'student_id required for parent access'}, status=404)
+            link = ParentStudent.objects.filter(
+                parent=request.user, student__student_id=student_id
+            ).select_related('student').first()
+            if not link:
+                return Response({'error': 'Access denied'}, status=403)
+            student = link.student
+        else:
+            try:
+                student = Student.objects.get(user=request.user)
+            except Student.DoesNotExist:
+                return Response({'error': 'Student profile not found'}, status=404)
 
         qs = TermResult.objects.filter(
             student=student

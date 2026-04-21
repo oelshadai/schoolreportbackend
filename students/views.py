@@ -101,6 +101,7 @@ class StudentViewSet(StudentValidationMixin, viewsets.ModelViewSet):
     def perform_update(self, serializer):
         user = self.request.user
         instance = serializer.instance
+        old_password = instance.password  # capture before save
         if getattr(user, 'role', None) == 'TEACHER':
             # Teachers can only modify students in their own class
             if instance.current_class is None or instance.current_class.class_teacher_id != user.id:
@@ -109,7 +110,12 @@ class StudentViewSet(StudentValidationMixin, viewsets.ModelViewSet):
             new_class = serializer.validated_data.get('current_class')
             if new_class and new_class.class_teacher_id != user.id:
                 raise permissions.PermissionDenied("You can only move students within your assigned class")
-        serializer.save()
+        saved = serializer.save()
+        # Keep the Django user's hashed password in sync whenever the plain-text
+        # Student.password field changes (e.g. admin resets the student's PIN).
+        if saved.user and saved.password and saved.password != old_password:
+            saved.user.set_password(saved.password)
+            saved.user.save(update_fields=['password'])
 
     def perform_destroy(self, instance):
         user = self.request.user
@@ -516,6 +522,11 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         term_id = self.request.query_params.get('term_id') or self.request.query_params.get('term')
         if term_id:
             queryset = queryset.filter(term_id=term_id)
+        else:
+            # Default to the school's current term
+            school = user.school
+            if hasattr(school, 'current_term_id') and school.current_term_id:
+                queryset = queryset.filter(term_id=school.current_term_id)
         
         # Handle both student_id and student parameters
         student_id = self.request.query_params.get('student_id') or self.request.query_params.get('student')
@@ -583,6 +594,11 @@ class BehaviourViewSet(viewsets.ModelViewSet):
         term_id = self.request.query_params.get('term_id') or self.request.query_params.get('term')
         if term_id:
             queryset = queryset.filter(term_id=term_id)
+        else:
+            # Default to the school's current term so teachers see/edit the right term's records
+            school = user.school
+            if hasattr(school, 'current_term_id') and school.current_term_id:
+                queryset = queryset.filter(term_id=school.current_term_id)
         
         # Handle both student_id and student parameters
         student_id = self.request.query_params.get('student_id') or self.request.query_params.get('student')
@@ -609,18 +625,35 @@ class BehaviourViewSet(viewsets.ModelViewSet):
         # Auto-assign current term if not provided
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
         if not data.get('term'):
-            from schools.models import Term
-            current_term = Term.objects.filter(is_current=True).first()
-            if current_term:
-                data['term'] = current_term.id
+            # Use school's configured current_term FK first, then fall back to is_current flag
+            current_term_id = getattr(user.school, 'current_term_id', None)
+            if current_term_id:
+                data['term'] = current_term_id
             else:
-                return Response({'error': 'No current term set. Please ask admin to set the current term.'}, status=status.HTTP_400_BAD_REQUEST)
+                from schools.models import Term
+                current_term = Term.objects.filter(
+                    academic_year__school=user.school, is_current=True
+                ).first()
+                if current_term:
+                    data['term'] = current_term.id
+                else:
+                    return Response({'error': 'No current term set. Please ask admin to set the current term.'}, status=status.HTTP_400_BAD_REQUEST)
         
-        serializer = self.get_serializer(data=data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        term_id = data.get('term')
+        # Use update_or_create so re-saving behaviour for the same student+term always works
+        try:
+            existing = Behaviour.objects.get(student_id=student_id, term_id=term_id)
+            serializer = self.get_serializer(existing, data=data, partial=False)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Behaviour.DoesNotExist:
+            serializer = self.get_serializer(data=data)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['get'])
     def choices(self, request):

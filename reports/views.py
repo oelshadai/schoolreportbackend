@@ -207,6 +207,18 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 student = Student.objects.get(id=student_id, user=request.user)
             else:
                 student = Student.objects.get(id=student_id, school=request.user.school)
+                # Class teachers can only preview reports for students in their class
+                if request.user.role == 'TEACHER':
+                    from schools.models import Class
+                    if not Class.objects.filter(
+                        school=request.user.school,
+                        class_teacher=request.user,
+                        id=student.current_class_id
+                    ).exists():
+                        return Response(
+                            {'error': 'You can only preview reports for students in your assigned class'},
+                            status=403
+                        )
             term = Term.objects.get(id=term_id)
 
             context = self._get_report_context(student, term, request)
@@ -239,6 +251,18 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 student = StudentModel.objects.get(id=student_id, user=request.user)
             else:
                 student = Student.objects.get(id=student_id, school=request.user.school)
+                # Class teachers can only download reports for students in their class
+                if request.user.role == 'TEACHER':
+                    from schools.models import Class
+                    if not Class.objects.filter(
+                        school=request.user.school,
+                        class_teacher=request.user,
+                        id=student.current_class_id
+                    ).exists():
+                        return Response(
+                            {"error": "You can only download reports for students in your assigned class"},
+                            status=status.HTTP_403_FORBIDDEN
+                        )
             term = Term.objects.get(id=term_id)
             
             # Get EXACT same context as preview - SINGLE SOURCE OF TRUTH
@@ -1715,6 +1739,17 @@ def template_preview_public(request):
     the admin sees (so logos and toggles match).
     """
     try:
+        wants_pdf = str(request.GET.get('format', '')).lower() == 'pdf'
+
+        def _pdf_response_from_context(context, filename_prefix='report_preview'):
+            from .pdf_generator import generate_terminal_report_pdf
+            from django.http import HttpResponse
+
+            pdf_content = generate_terminal_report_pdf(context)
+            response = HttpResponse(pdf_content, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="{filename_prefix}.pdf"'
+            return response
+
         # If user is not authenticated, try to authenticate via JWT token in query param
         if not request.user.is_authenticated:
             token_param = request.GET.get('token')
@@ -1941,18 +1976,13 @@ def template_preview_public(request):
                     reopening_date = datetime.now().date() + timedelta(weeks=2)
                 
                 # Get real attendance data
-                attendance_obj = None
-                try:
-                    attendance_obj = Attendance.objects.get(student=student, term=term)
-                except Attendance.DoesNotExist:
-                    pass
+                attendance_obj = Attendance.objects.filter(student=student, term=term).first()
                 
-                # Get real behavior data
-                behaviour_obj = None
-                try:
-                    behaviour_obj = Behaviour.objects.get(student=student, term=term)
-                except Behaviour.DoesNotExist:
-                    pass
+                # Get real behavior data - look for exact term first, fall back to most recent
+                behaviour_obj = Behaviour.objects.filter(student=student, term=term).first()
+                if not behaviour_obj:
+                    # Fall back to most recent behaviour record for this student
+                    behaviour_obj = Behaviour.objects.filter(student=student).order_by('-term__start_date').first()
                 
                 # Prepare empty rows for table
                 empty_rows_count = max(0, 9 - len(subject_results))
@@ -1981,6 +2011,10 @@ def template_preview_public(request):
                     'media_url_base': media_url_base
                 }
                 
+                if wants_pdf:
+                    filename_prefix = f"{student.student_id}_{term.name}_Report"
+                    return _pdf_response_from_context(context, filename_prefix)
+
                 return render(request, 'reports/terminal_report.html', context)
                 
             except Exception as e:
@@ -1997,7 +2031,11 @@ def template_preview_public(request):
         # Use SAME context helper as PDF generation
         html_context = temp_vs._get_sample_report_context(school, sample_data, request)
 
-        # Default: return SAME template as PDF
+        if wants_pdf:
+            filename_prefix = 'template_preview'
+            return _pdf_response_from_context(html_context, filename_prefix)
+
+        # Default: return HTML preview
         return render(request, 'reports/terminal_report.html', html_context)
 
     except Exception as e:
