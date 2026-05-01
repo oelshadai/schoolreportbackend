@@ -19,16 +19,29 @@
 
         /* == Page frame == */
         .report-container {
-            width: 100%; height: 270mm;
+            width: 210mm; height: 277mm;
             display: table; table-layout: fixed;
             border-collapse: separate; border-spacing: 0;
+            margin: 0 auto;
+            border: 2pt solid #111;
+            background: #fff;
         }
-        .header-section  { display: table-row; height: 17%; }
-        .content-section { display: table-row; height: 60%; }
-        .footer-section  { display: table-row; height: 23%; }
+        .header-section  { display: table-row; height: 21%; }
+        .content-section { display: table-row; height: 51%; }
+        .footer-section  { display: table-row; height: 28%; }
         .section-cell  { display: table-cell; vertical-align: top; padding: 0; }
         .content-cell  { display: table-cell; vertical-align: top; position: relative; }
-        .footer-cell   { display: table-cell; vertical-align: bottom; }
+        .footer-cell   { display: table-cell; vertical-align: top; }
+
+        @media screen {
+            body {
+                background: #ececec;
+                padding: 8px;
+            }
+            .report-container {
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+            }
+        }
 
         /* == Watermark == */
         .watermark {
@@ -244,6 +257,8 @@
             font-size: 8.5pt; line-height: 1.3;
             color: #222; font-style: italic;
             min-height: 16pt;
+            max-height: 34pt;
+            overflow: hidden;
         }
 
         .signature-section {
@@ -275,7 +290,7 @@
         }
 
         /* == Print styles == */
-        @page { size: A4; margin: 10mm 12mm; }
+        @page { size: A4; margin: 10mm; }
 
         @media print {
             * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -285,11 +300,19 @@
                 background: white !important;
             }
             .report-container { width: 100% !important; height: 270mm !important; display: table !important; table-layout: fixed !important; }
-            .header-section  { display: table-row !important; height: 17% !important; }
-            .content-section { display: table-row !important; height: 60% !important; }
-            .footer-section  { display: table-row !important; height: 23% !important; }
+            .report-container {
+                width: 100% !important;
+                height: 277mm !important;
+                display: table !important;
+                table-layout: fixed !important;
+                border: 2pt solid #111 !important;
+                background: #fff !important;
+            }
+            .header-section  { display: table-row !important; height: 21% !important; }
+            .content-section { display: table-row !important; height: 51% !important; }
+            .footer-section  { display: table-row !important; height: 28% !important; }
             .section-cell, .content-cell, .footer-cell { display: table-cell !important; }
-            .footer-cell { vertical-align: bottom !important; }
+            .footer-cell { vertical-align: top !important; }
             .scores-wrapper { height: 100% !important; position: relative !important; }
             .table-wrap { width: 100% !important; height: 100% !important; border: 2pt solid #0d1b4a !important; overflow: hidden !important; }
             .scores-table { width: 100% !important; height: 100% !important; border-collapse: collapse !important; font-size: 9pt !important; table-layout: fixed !important; }

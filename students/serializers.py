@@ -57,10 +57,31 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         return value
         
     def create(self, validated_data):
-        student = super().create(validated_data)
+        # Check whether the admin wants to create a login account for this student
+        request = self.context.get('request')
+        create_account = True
+        if request:
+            raw = request.data.get('create_account', 'true')
+            if isinstance(raw, str):
+                create_account = raw.lower() not in ('false', '0', 'no')
+            else:
+                create_account = bool(raw)
+
+        # Manually instantiate so we can set the skip flag before save()
+        student = Student(**validated_data)
+        if not create_account:
+            student._skip_account_creation = True
+        student.save()
+
         # Return the generated credentials in the response
-        student.generated_password = student.password
-        student.generated_username = student.username
+        student.generated_password = student.password if create_account else None
+        student.generated_username = student.username if create_account else None
+        student.account_created = create_account
+
+        if not create_account:
+            student.parent_account_created = False
+            student.parent_generated_password = None
+            return student
 
         # ── Auto-create parent account from guardian info ──────────────────
         guardian_email = student.guardian_email

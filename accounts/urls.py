@@ -27,6 +27,9 @@ from .superadmin_views import (
     superadmin_subscription_extend, superadmin_subscription_update,
     superadmin_analytics,
     superadmin_plans, superadmin_plan_detail,
+    superadmin_disable_admin_cascade, superadmin_enable_admin_cascade,
+    superadmin_messages, admin_messages_inbox, admin_message_mark_read,
+    superadmin_list_admins,
 )
 
 @ensure_csrf_cookie
@@ -106,4 +109,14 @@ urlpatterns = [
     path('superadmin/analytics/', superadmin_analytics, name='superadmin_analytics'),
     path('superadmin/plans/', superadmin_plans, name='superadmin_plans'),
     path('superadmin/plans/<int:plan_id>/', superadmin_plan_detail, name='superadmin_plan_detail'),
+
+    # ── Admin account cascade disable/enable ─────────────────────
+    path('superadmin/admins/', superadmin_list_admins, name='superadmin_list_admins'),
+    path('superadmin/admins/<int:user_id>/disable/', superadmin_disable_admin_cascade, name='superadmin_disable_admin'),
+    path('superadmin/admins/<int:user_id>/enable/', superadmin_enable_admin_cascade, name='superadmin_enable_admin'),
+
+    # ── Direct messaging ─────────────────────────────────────────
+    path('superadmin/messages/', superadmin_messages, name='superadmin_messages'),
+    path('superadmin/messages/inbox/', admin_messages_inbox, name='admin_messages_inbox'),
+    path('superadmin/messages/<int:msg_id>/read/', admin_message_mark_read, name='admin_message_mark_read'),
 ]

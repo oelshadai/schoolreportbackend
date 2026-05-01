@@ -2,8 +2,14 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from schools.models import School, AcademicYear, Term, Subject, GradingScale
-from datetime import date
+from subscriptions.models import (
+    PLAN_FREE, PLAN_MONTHLY, PLAN_YEARLY, PLAN_DURATIONS, Subscription
+)
+from datetime import date, timedelta
+import re
 
 User = get_user_model()
 
@@ -44,6 +50,20 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
             raise serializers.ValidationError({"password": "Passwords do not match"})
+
+        # Enforce complexity: at least one uppercase, one digit
+        password = attrs['password']
+        if not re.search(r'[A-Z]', password):
+            raise serializers.ValidationError({"password": "Password must contain at least one uppercase letter."})
+        if not re.search(r'\d', password):
+            raise serializers.ValidationError({"password": "Password must contain at least one digit."})
+
+        # Run Django's built-in validators (common passwords, similarity, etc.)
+        try:
+            validate_password(password)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError({"password": list(e.messages)})
+
         return attrs
 
     def create(self, validated_data):
@@ -86,6 +106,12 @@ class SchoolRegistrationSerializer(serializers.Serializer):
         allow_empty=True,
         required=False
     )
+    plan = serializers.ChoiceField(
+        choices=[PLAN_FREE, PLAN_MONTHLY, PLAN_YEARLY],
+        default=PLAN_FREE,
+        required=False,
+        help_text='Subscription plan: FREE (14-day trial), MONTHLY (KES 400), YEARLY (KES 4,400)',
+    )
 
     first_name = serializers.CharField(max_length=100, required=False, default='Admin')
     last_name = serializers.CharField(max_length=100, required=False, default='User')
@@ -104,17 +130,31 @@ class SchoolRegistrationSerializer(serializers.Serializer):
         school_name = validated_data.pop('school_name')
         admin_email = validated_data.pop('admin_email')
         levels = validated_data.pop('levels', [])
+        plan = validated_data.pop('plan', PLAN_FREE)
+
+        today = date.today()
+        duration = PLAN_DURATIONS.get(plan, PLAN_DURATIONS[PLAN_FREE])
+        trial_expires = today + timedelta(days=duration)
 
         # Create School
         school = School.objects.create(
             name=school_name,
             email=admin_email,
-            subscription_plan='FREE',
-            # levels=levels  # uncomment if School model has this field
+            subscription_plan=plan,
+            subscription_expires=trial_expires,
+            is_active=True,
+        )
+
+        # Create subscription record
+        Subscription.objects.create(
+            school=school,
+            plan_type=plan,
+            start_date=today,
+            end_date=trial_expires,
+            status=Subscription.STATUS_ACTIVE,
         )
 
         # Academic year & term
-        today = date.today()
         year_span = f"{today.year}/{today.year+1}" if today.month >= 9 else f"{today.year-1}/{today.year}"
         academic_year = AcademicYear.objects.create(
             school=school,
@@ -160,7 +200,7 @@ class SchoolRegistrationSerializer(serializers.Serializer):
             first_name=validated_data.get('first_name', 'Admin'),
             last_name=validated_data.get('last_name', 'User'),
             role='SCHOOL_ADMIN',
-            school=school 
+            school=school
         )
 
         return user

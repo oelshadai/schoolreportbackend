@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import School, AcademicYear, Term, Class, Subject, ClassSubject, GradingScale, StaffPermission
+from .models import School, AcademicYear, Term, Class, Subject, ClassSubject, GradingScale, StaffPermission, SmsPurchaseOrder
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -66,6 +66,34 @@ class ParentPortalWriteSerializer(ParentPortalSettingsSerializer):
         new_secret = validated_data.pop('paystack_secret_key', '').strip()
         if new_secret:
             validated_data['paystack_secret_key'] = new_secret
+        return super().update(instance, validated_data)
+
+
+class SmsSettingsSerializer(serializers.ModelSerializer):
+    """Read/write SMS notification settings for a school."""
+
+    class Meta:
+        model = School
+        fields = [
+            'sms_enabled',
+            'arkesel_api_key',
+            'sms_sender_name',
+            'sms_attendance_enabled',
+            'sms_fee_reminder_enabled',
+        ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Mask the API key — only show whether it is set
+        data['arkesel_api_key_saved'] = bool(instance.arkesel_api_key)
+        data['arkesel_api_key'] = ''  # never expose the raw key on GET
+        return data
+
+    def update(self, instance, validated_data):
+        # Only overwrite the API key if a new non-blank value is provided
+        new_key = validated_data.pop('arkesel_api_key', '').strip()
+        if new_key:
+            validated_data['arkesel_api_key'] = new_key
         return super().update(instance, validated_data)
 
 
@@ -270,3 +298,34 @@ class StaffPermissionSerializer(serializers.ModelSerializer):
 
     def get_teacher_email(self, obj):
         return obj.teacher.email
+
+
+# SMS purchase price per unit in GHS
+SMS_PRICE_GHS = '0.10'
+
+SMS_BUNDLES = [
+    {'id': 1, 'name': '50 SMS',    'sms_units': 50,   'amount_ghs': '5.00'},
+    {'id': 2, 'name': '100 SMS',   'sms_units': 100,  'amount_ghs': '10.00'},
+    {'id': 3, 'name': '500 SMS',   'sms_units': 500,  'amount_ghs': '50.00'},
+    {'id': 4, 'name': '1000 SMS',  'sms_units': 1000, 'amount_ghs': '100.00'},
+    {'id': 5, 'name': '2000 SMS',  'sms_units': 2000, 'amount_ghs': '200.00'},
+]
+
+
+class SmsPurchaseOrderSerializer(serializers.ModelSerializer):
+    requested_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SmsPurchaseOrder
+        fields = [
+            'id', 'sms_units', 'amount_ghs', 'status',
+            'paystack_reference', 'requested_by_name',
+            'credited_at', 'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_requested_by_name(self, obj):
+        if obj.requested_by:
+            return obj.requested_by.get_full_name() or obj.requested_by.username
+        return ''
+

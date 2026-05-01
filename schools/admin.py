@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import School, AcademicYear, Term, Class, Subject, ClassSubject, GradingScale
+from .models import School, AcademicYear, Term, Class, Subject, ClassSubject, GradingScale, SmsPurchaseOrder
 
 
 @admin.register(School)
@@ -54,7 +54,20 @@ class SchoolAdmin(admin.ModelAdmin):
 			'description': 'Set the minimum scores for each grade (A, B, C, D, F)',
 			'classes': ('collapse',)
 		}),
+		('SMS Credits', {
+			'fields': ('sms_balance',),
+			'description': 'Current SMS unit balance. 1 unit = 1 SMS sent via the platform Arkesel account.',
+		}),
 	)
+
+
+@admin.register(SmsPurchaseOrder)
+class SmsPurchaseOrderAdmin(admin.ModelAdmin):
+	list_display = ('school', 'sms_units', 'amount_ghs', 'status', 'requested_by', 'credited_at', 'created_at')
+	list_filter = ('status', 'school')
+	search_fields = ('school__name', 'paystack_reference')
+	readonly_fields = ('school', 'requested_by', 'sms_units', 'amount_ghs', 'paystack_reference', 'credited_at', 'created_at', 'updated_at')
+	ordering = ('-created_at',)
 
 
 @admin.register(AcademicYear)

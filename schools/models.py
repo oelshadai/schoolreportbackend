@@ -161,7 +161,37 @@ class School(models.Model):
         max_length=100, blank=True,
         help_text='Your Paystack secret key — kept server-side only'
     )
-    
+
+    # ---------------------------------------------------------------
+    # SMS / Notifications Settings (Arkesel)
+    # ---------------------------------------------------------------
+    sms_enabled = models.BooleanField(
+        default=False,
+        help_text='Master switch — enable SMS notifications for this school'
+    )
+    arkesel_api_key = models.CharField(
+        max_length=200, blank=True,
+        help_text='Arkesel API key from your Arkesel dashboard'
+    )
+    sms_sender_name = models.CharField(
+        max_length=11, blank=True, default='SchoolSMS',
+        help_text='SMS sender ID (max 11 alphanumeric chars, e.g. "MySchool")'
+    )
+    sms_attendance_enabled = models.BooleanField(
+        default=False,
+        help_text='Send SMS to parents/guardians when attendance is taken'
+    )
+    sms_fee_reminder_enabled = models.BooleanField(
+        default=False,
+        help_text='Allow admins to send fee-reminder SMS to parents of students with unpaid bills'
+    )
+
+    # SMS credit balance — number of SMS units this school has purchased
+    sms_balance = models.PositiveIntegerField(
+        default=0,
+        help_text='Number of SMS units available (1 unit = 1 SMS sent via the platform Arkesel account)'
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -186,6 +216,42 @@ class School(models.Model):
             return 'D'
         else:
             return 'F'
+
+
+class SmsPurchaseOrder(models.Model):
+    """Tracks SMS credit purchase orders made by schools via Paystack."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_PAID = 'paid'
+    STATUS_FAILED = 'failed'
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending Payment'),
+        (STATUS_PAID, 'Paid — Credited'),
+        (STATUS_FAILED, 'Payment Failed'),
+    ]
+
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, related_name='sms_purchases'
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, related_name='sms_purchase_orders'
+    )
+    sms_units = models.PositiveIntegerField(help_text='Number of SMS credits purchased')
+    amount_ghs = models.DecimalField(max_digits=10, decimal_places=2, help_text='Amount paid in GHS')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    paystack_reference = models.CharField(max_length=100, blank=True, unique=True, null=True)
+    credited_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'sms_purchase_orders'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.school.name} — {self.sms_units} SMS — {self.status}"
 
 
 class AcademicYear(models.Model):

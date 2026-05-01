@@ -956,6 +956,29 @@ class TermBillViewSet(viewsets.ModelViewSet):
                     )
                     created_count += 1
 
+        # Send email notifications to guardians/parents for newly created bills
+        if created_count > 0:
+            try:
+                from notifications.email_service import EmailService
+                # Group new bills by student for a single email per student
+                from collections import defaultdict
+                student_bills = defaultdict(list)
+                for bill in TermBill.objects.filter(
+                    school=school, term=term
+                ).select_related('student', 'fee_type'):
+                    student_bills[bill.student_id].append(bill)
+                for student_id, student_bill_list in student_bills.items():
+                    try:
+                        EmailService.send_bills_generated(
+                            student_bill_list[0].student,
+                            student_bill_list,
+                            term,
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass  # Email failure must never break bill generation
+
         return Response({
             'created': created_count,
             'updated': updated_count,
@@ -1115,4 +1138,326 @@ class TermBillViewSet(viewsets.ModelViewSet):
                 'total_daily_paid': total_daily_paid,
                 'grand_total_paid': total_paid_bills + total_daily_paid,
             },
+            'online_payments_enabled': school.parent_can_pay_fees_online if hasattr(school, 'parent_can_pay_fees_online') else False,
+            'paystack_public_key': school.paystack_public_key if (hasattr(school, 'paystack_public_key') and school.parent_can_pay_fees_online) else None,
+        })
+
+    @action(detail=True, methods=['post'], url_path='initiate-paystack')
+    def initiate_paystack(self, request, pk=None):
+        """
+        POST /fees/term-bills/<id>/initiate-paystack/
+        Initiate a Paystack payment for a specific term bill.
+        Accessible by STUDENT and PARENT only.
+        Returns: { authorization_url, reference, amount, public_key }
+        """
+        import uuid
+        import requests as http_requests
+        from django.conf import settings as django_settings
+
+        role = getattr(request.user, 'role', '')
+        school = request.user.school
+
+        # Resolve student
+        if role == 'STUDENT':
+            try:
+                student = request.user.student_profile
+            except Exception:
+                return Response({'error': 'Student record not found'}, status=status.HTTP_404_NOT_FOUND)
+        elif role == 'PARENT':
+            from accounts.models import ParentStudent
+            student_id = request.data.get('student_id') or request.query_params.get('student_id')
+            if not student_id:
+                return Response({'error': 'student_id required'}, status=status.HTTP_400_BAD_REQUEST)
+            linked_ids = list(ParentStudent.objects.filter(parent=request.user).values_list('student__student_id', flat=True))
+            if student_id not in linked_ids:
+                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+            try:
+                student = Student.objects.get(student_id=student_id, school=school)
+            except Student.DoesNotExist:
+                return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            return Response({'error': 'Not permitted'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Check online payments enabled
+        if not getattr(school, 'parent_can_pay_fees_online', False):
+            return Response({'error': 'Online payments are not enabled for this school.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not getattr(school, 'paystack_secret_key', ''):
+            return Response({'error': 'Payment gateway not configured.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get the bill — must belong to this student + school
+        try:
+            bill = TermBill.objects.get(pk=pk, student=student, school=school)
+        except TermBill.DoesNotExist:
+            return Response({'error': 'Bill not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if bill.status in ('PAID', 'WAIVED'):
+            return Response({'error': 'This bill is already paid or waived.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        amount_to_pay = float(bill.balance)
+        if amount_to_pay <= 0:
+            return Response({'error': 'No outstanding balance.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Paystack expects amount in smallest currency unit (kobo for NGN, pesewas for GHS)
+        amount_smallest = int(amount_to_pay * 100)
+
+        payer_email = request.user.email or ''
+        if not payer_email:
+            return Response({'error': 'User email required for payment.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reference = f"FEE-{bill.id}-{uuid.uuid4().hex[:8].upper()}"
+
+        paystack_url = 'https://api.paystack.co/transaction/initialize'
+        headers = {
+            'Authorization': f'Bearer {school.paystack_secret_key}',
+            'Content-Type': 'application/json',
+        }
+        payload = {
+            'email': payer_email,
+            'amount': amount_smallest,
+            'reference': reference,
+            'metadata': {
+                'bill_id': bill.id,
+                'student_id': student.student_id,
+                'fee_type': bill.fee_type.name,
+                'school_id': school.id,
+            },
+            'callback_url': f"{getattr(django_settings, 'FRONTEND_URL', '')}/student/bills?paystack_ref={reference}",
+        }
+
+        try:
+            resp = http_requests.post(paystack_url, json=payload, headers=headers, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.error(f"Paystack initiate error: {e}")
+            return Response({'error': 'Payment gateway error. Please try again.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if not data.get('status'):
+            return Response({'error': data.get('message', 'Payment initiation failed.')}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            'authorization_url': data['data']['authorization_url'],
+            'reference': reference,
+            'amount': amount_to_pay,
+            'public_key': getattr(school, 'paystack_public_key', ''),
+        })
+
+    @action(detail=False, methods=['get'], url_path='verify-paystack')
+    def verify_paystack(self, request):
+        """
+        GET /fees/term-bills/verify-paystack/?reference=<ref>
+        Verify a Paystack payment and record it if successful.
+        Accessible by STUDENT and PARENT.
+        """
+        import requests as http_requests
+        from decimal import Decimal
+
+        reference = request.query_params.get('reference', '').strip()
+        if not reference:
+            return Response({'error': 'reference is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        role = getattr(request.user, 'role', '')
+        school = request.user.school
+
+        if role not in ('STUDENT', 'PARENT'):
+            return Response({'error': 'Not permitted'}, status=status.HTTP_403_FORBIDDEN)
+
+        if not getattr(school, 'paystack_secret_key', ''):
+            return Response({'error': 'Payment gateway not configured.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Extract bill_id from reference format: FEE-<id>-<hex>
+        try:
+            bill_id = int(reference.split('-')[1])
+        except (IndexError, ValueError):
+            return Response({'error': 'Invalid reference format.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            bill = TermBill.objects.get(pk=bill_id, school=school)
+        except TermBill.DoesNotExist:
+            return Response({'error': 'Bill not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Idempotency: already recorded
+        if FeePayment.objects.filter(paystack_reference=reference, paystack_status='success').exists():
+            return Response({'already_recorded': True, 'bill_status': bill.status})
+
+        # Verify with Paystack
+        verify_url = f'https://api.paystack.co/transaction/verify/{reference}'
+        headers = {'Authorization': f'Bearer {school.paystack_secret_key}'}
+        try:
+            resp = http_requests.get(verify_url, headers=headers, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.error(f"Paystack verify error: {e}")
+            return Response({'error': 'Payment verification failed. Please try again.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if not data.get('status') or data['data'].get('status') != 'success':
+            return Response({'success': False, 'message': 'Payment not successful.'})
+
+        amount_paid_smallest = data['data']['amount']
+        amount_paid = Decimal(str(amount_paid_smallest)) / 100
+
+        # Record the payment
+        FeePayment.objects.create(
+            student=bill.student,
+            school=school,
+            fee_type=bill.fee_type,
+            amount_paid=amount_paid,
+            payment_method='PAYSTACK',
+            reference_number=reference,
+            paystack_reference=reference,
+            paystack_status='success',
+            is_verified=True,
+            notes=f'Online payment via Paystack. Ref: {reference}',
+        )
+
+        # Update TermBill amount_paid (balance is computed by the model's save())
+        bill.amount_paid = Decimal(str(bill.amount_paid)) + amount_paid
+        bill.save()
+
+        return Response({
+            'success': True,
+            'amount_paid': float(amount_paid),
+            'bill_status': bill.status,
+            'reference': reference,
+        })
+
+    @action(detail=False, methods=['post'], url_path='send-fee-reminders')
+    def send_fee_reminders(self, request):
+        """
+        POST /fees/term-bills/send-fee-reminders/
+        Send SMS + in-app notification to parents/guardians of students
+        with UNPAID or PARTIAL bills.
+
+        Body (all optional):
+          {
+            "term": <id>,           // filter to a specific term
+            "class_id": <id>,       // filter to a class
+            "fee_type": <id>,       // filter to a specific fee type
+            "message": "...",       // custom SMS message (uses default if omitted)
+            "dry_run": false        // if true, return who would be notified without sending
+          }
+
+        Returns: { sent: N, skipped: N, no_phone: N, details: [...] }
+        """
+        from notifications.sms_service import SmsService
+        from notifications.models import Notification
+
+        role = getattr(request.user, 'role', '')
+        if role not in ('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'):
+            return Response({'error': 'Only admins can send fee reminders.'}, status=status.HTTP_403_FORBIDDEN)
+
+        school = request.user.school
+        if not getattr(school, 'sms_enabled', False):
+            return Response({'error': 'SMS is not enabled for this school. Enable it in School Settings.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not getattr(school, 'sms_fee_reminder_enabled', False):
+            return Response({'error': 'SMS fee reminders are not enabled. Enable "SMS Fee Reminders" in School Settings.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        dry_run = request.data.get('dry_run', False)
+        custom_message = request.data.get('message', '').strip()
+
+        # Build queryset of outstanding bills
+        qs = TermBill.objects.filter(
+            school=school,
+            status__in=['UNPAID', 'PARTIAL'],
+        ).select_related('student', 'fee_type', 'term')
+
+        term_id = request.data.get('term')
+        if term_id:
+            qs = qs.filter(term_id=term_id)
+
+        class_id = request.data.get('class_id')
+        if class_id:
+            qs = qs.filter(student__current_class_id=class_id)
+
+        fee_type_id = request.data.get('fee_type')
+        if fee_type_id:
+            qs = qs.filter(fee_type_id=fee_type_id)
+
+        # Group bills by student so one student gets one SMS
+        from collections import defaultdict
+        student_bills: dict = defaultdict(list)
+        for bill in qs:
+            student_bills[bill.student_id].append(bill)
+
+        sent = 0
+        skipped = 0
+        no_phone = 0
+        details = []
+
+        for student_id, bills in student_bills.items():
+            student = bills[0].student
+            phone = getattr(student, 'guardian_phone', '') or ''
+            total_balance = sum(float(b.balance) for b in bills)
+            bill_lines = ', '.join(f'{b.fee_type.name}: GH₵{float(b.balance):,.2f}' for b in bills)
+
+            if custom_message:
+                sms_text = custom_message.replace('{student}', student.get_full_name()).replace('{balance}', f'GH₵{total_balance:,.2f}')
+            else:
+                sms_text = (
+                    f'Dear {student.guardian_name}, your ward {student.get_full_name()} has outstanding school fees: '
+                    f'{bill_lines}. Total balance: GH₵{total_balance:,.2f}. Please pay at the school. Thank you.'
+                )
+
+            detail = {
+                'student': student.get_full_name(),
+                'student_id': student.student_id,
+                'guardian_phone': phone if phone else None,
+                'total_balance': total_balance,
+                'bills': [{'fee_type': b.fee_type.name, 'balance': float(b.balance), 'status': b.status} for b in bills],
+            }
+
+            if not phone:
+                no_phone += 1
+                detail['result'] = 'no_phone'
+                details.append(detail)
+                continue
+
+            if dry_run:
+                detail['result'] = 'would_send'
+                detail['message_preview'] = sms_text
+                details.append(detail)
+                sent += 1
+                continue
+
+            # Send SMS
+            success = SmsService.send([phone], sms_text, school)
+            if success:
+                sent += 1
+                detail['result'] = 'sent'
+            else:
+                skipped += 1
+                detail['result'] = 'failed'
+
+            # Also send in-app notification to linked parent user accounts
+            try:
+                from accounts.models import ParentStudent
+                parent_users = [ps.parent for ps in ParentStudent.objects.filter(student=student).select_related('parent')]
+                for parent in parent_users:
+                    Notification.objects.create(
+                        user=parent,
+                        title='📢 Fee Payment Reminder',
+                        message=f'Outstanding balance for {student.get_full_name()}: GH₵{total_balance:,.2f}. Please clear fees as soon as possible.',
+                        type='warning',
+                    )
+                # Also notify the student's own user account if it exists
+                if hasattr(student, 'user') and student.user:
+                    Notification.objects.create(
+                        user=student.user,
+                        title='📢 Fee Payment Reminder',
+                        message=f'You have outstanding fees of GH₵{total_balance:,.2f}. Please ask your guardian to pay at the school.',
+                        type='warning',
+                    )
+            except Exception as notif_err:
+                logger.warning(f'In-app notification failed for student {student_id}: {notif_err}')
+
+            details.append(detail)
+
+        return Response({
+            'dry_run': dry_run,
+            'sent': sent,
+            'skipped': skipped,
+            'no_phone': no_phone,
+            'total_students': len(student_bills),
+            'details': details,
         })

@@ -64,7 +64,7 @@ class Student(models.Model):
             self.password = self.generate_password()
         
         # Create Django user for authentication only if user doesn't exist
-        if not self.user and not self.pk:  # Only on creation
+        if not self.user and not self.pk and not getattr(self, '_skip_account_creation', False):  # Only on creation
             from django.contrib.auth import get_user_model
             User = get_user_model()
             # Create email using student ID and school domain

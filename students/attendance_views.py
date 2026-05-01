@@ -267,6 +267,18 @@ class TeacherAttendanceViewSet(viewsets.ViewSet):
                     except Exception as fee_err:
                         print(f"DEBUG: Daily fee auto-charge failed for student {student_id}: {fee_err}")
 
+                # SMS attendance alert to guardian
+                try:
+                    from notifications.sms_service import SmsService
+                    SmsService.send_attendance_alert(
+                        student=student,
+                        status=status_value,
+                        date_str=selected_date.strftime('%d %b %Y'),
+                        school=cls.school,
+                    )
+                except Exception as sms_err:
+                    print(f"DEBUG: SMS alert failed for student {student_id}: {sms_err}")
+
                 if created:
                     saved_count += 1
                 else:

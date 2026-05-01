@@ -121,6 +121,111 @@ class EmailService:
             return False
     
     @staticmethod
+    def send_report_published(report_card):
+        """Notify guardian/parent that a report card has been published."""
+        try:
+            student = report_card.student
+            recipients = []
+            if student.guardian_email:
+                recipients.append(student.guardian_email)
+            # Also notify linked parent user accounts
+            from accounts.models import ParentStudent
+            parent_emails = list(
+                ParentStudent.objects.filter(student=student)
+                .values_list('parent__email', flat=True)
+            )
+            for email in parent_emails:
+                if email and email not in recipients:
+                    recipients.append(email)
+            if not recipients:
+                return False
+            term_name = str(report_card.term)
+            subject = f'Report Card Available – {student.get_full_name()} | {term_name}'
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #4f46e5;">Report Card Published</h2>
+                <p>Dear {student.guardian_name},</p>
+                <p>The report card for <strong>{student.get_full_name()}</strong> for <strong>{term_name}</strong> has been published and is now available to view.</p>
+                <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <p style="margin: 0;"><strong>Student:</strong> {student.get_full_name()}</p>
+                    <p style="margin: 8px 0 0;"><strong>Term:</strong> {term_name}</p>
+                    <p style="margin: 8px 0 0;"><strong>Report Code:</strong> {report_card.report_code}</p>
+                </div>
+                <p>Log in to the student portal to view the full report card.</p>
+                <p><a href="{settings.FRONTEND_URL}/student/reports" style="background: #4f46e5; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; display: inline-block; margin-top: 8px;">View Report Card</a></p>
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <p style="color: #6b7280; font-size: 12px;">School Management System</p>
+            </div>
+            """
+            text_content = strip_tags(html_content)
+            email_msg = EmailMultiAlternatives(subject, text_content, settings.DEFAULT_FROM_EMAIL, recipients)
+            email_msg.attach_alternative(html_content, "text/html")
+            email_msg.send()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send report published notification: {e}")
+            return False
+
+    @staticmethod
+    def send_bills_generated(student, bills, term):
+        """Notify guardian/parent that fee bills have been generated."""
+        try:
+            recipients = []
+            if student.guardian_email:
+                recipients.append(student.guardian_email)
+            from accounts.models import ParentStudent
+            parent_emails = list(
+                ParentStudent.objects.filter(student=student)
+                .values_list('parent__email', flat=True)
+            )
+            for email in parent_emails:
+                if email and email not in recipients:
+                    recipients.append(email)
+            if not recipients:
+                return False
+            total_billed = sum(float(b.amount_billed) for b in bills)
+            rows = ''.join(
+                f'<tr><td style="padding: 6px 8px; border-bottom: 1px solid #e5e7eb;">{b.fee_type.name}</td>'
+                f'<td style="padding: 6px 8px; border-bottom: 1px solid #e5e7eb; text-align: right;">GH₵ {float(b.amount_billed):,.2f}</td></tr>'
+                for b in bills
+            )
+            subject = f'Fee Bills Generated – {student.get_full_name()} | {term}'
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #4f46e5;">Fee Bills Generated</h2>
+                <p>Dear {student.guardian_name},</p>
+                <p>Fee bills have been generated for <strong>{student.get_full_name()}</strong> for <strong>{term}</strong>.</p>
+                <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+                    <thead>
+                        <tr style="background: #f3f4f6;">
+                            <th style="padding: 8px; text-align: left; border-bottom: 2px solid #e5e7eb;">Fee Type</th>
+                            <th style="padding: 8px; text-align: right; border-bottom: 2px solid #e5e7eb;">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>{rows}</tbody>
+                    <tfoot>
+                        <tr>
+                            <td style="padding: 8px; font-weight: bold;">Total</td>
+                            <td style="padding: 8px; font-weight: bold; text-align: right;">GH₵ {total_billed:,.2f}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+                <p>Please log in to the parent portal to view and pay your bills.</p>
+                <p><a href="{settings.FRONTEND_URL}/student/bills" style="background: #4f46e5; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; display: inline-block; margin-top: 8px;">View Bills</a></p>
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <p style="color: #6b7280; font-size: 12px;">School Management System</p>
+            </div>
+            """
+            text_content = strip_tags(html_content)
+            email_msg = EmailMultiAlternatives(subject, text_content, settings.DEFAULT_FROM_EMAIL, recipients)
+            email_msg.attach_alternative(html_content, "text/html")
+            email_msg.send()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send bills generated notification: {e}")
+            return False
+
+    @staticmethod
     def send_support_ticket_notification(superadmin, ticket):
         """Send support ticket notification to superadmin"""
         try:

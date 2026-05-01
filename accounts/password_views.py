@@ -8,6 +8,22 @@ from django.conf import settings
 import secrets
 import string
 
+
+def _require_superadmin(request):
+    """Return error Response if caller is not an authenticated SUPER_ADMIN."""
+    if not request.user or not request.user.is_authenticated:
+        return Response({'error': 'Authentication required'}, status=401)
+    if getattr(request.user, 'role', None) != 'SUPER_ADMIN':
+        return Response({'error': 'Super admin access required'}, status=403)
+    return None
+
+
+def _emergency_disabled():
+    """Return 403 in production so emergency endpoints are never reachable publicly."""
+    if not getattr(settings, 'DEBUG', False):
+        return Response({'error': 'Not available'}, status=403)
+    return None
+
 User = get_user_model()
 
 @api_view(['POST'])
@@ -110,25 +126,34 @@ def confirm_reset_password(request):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def reset_password_admin(request):
-    """Admin reset password for any user"""
-    username = request.data.get('username')
-    
+    """Admin reset password for any user — requires SUPER_ADMIN role."""
+    err = _require_superadmin(request)
+    if err:
+        return err
+
+    username = request.data.get('username') or request.data.get('email', '').strip()
+
     if not username:
-        return Response({'error': 'Username required'}, status=400)
-    
+        return Response({'error': 'Username or email required'}, status=400)
+
     try:
-        user = User.objects.get(username=username)
+        if '@' in username:
+            user = User.objects.get(email__iexact=username)
+        else:
+            user = User.objects.get(username=username)
     except User.DoesNotExist:
-        return Response({'error': 'User not found'}, status=404)
-    
-    # Generate new password
-    new_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(6))
+        # Avoid leaking whether the user exists
+        return Response({'error': 'User not found or reset failed'}, status=404)
+
+    # Generate new 12-char password with mixed characters
+    alphabet = string.ascii_letters + string.digits + '!@#$'
+    new_password = ''.join(secrets.choice(alphabet) for _ in range(12))
     user.set_password(new_password)
     user.save()
-    
-    # Update student password field if student
+
+    # Update student password display field if applicable
     if hasattr(user, 'student_profile'):
         user.student_profile.password = new_password
         user.student_profile.save()
@@ -136,16 +161,19 @@ def reset_password_admin(request):
     return Response({
         'message': 'Password reset successfully',
         'new_password': new_password,
-        'username': username
+        'username': user.email
     })
 
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def emergency_reset(request):
-    """Emergency password reset — requires SECRET_KEY as auth token.
-    Used to unblock production when email/shell are unavailable.
+    """Emergency password reset — DEBUG only, requires SECRET_KEY.
+    Disabled entirely in production — use the admin panel or shell instead.
     """
+    guard = _emergency_disabled()
+    if guard:
+        return guard
     from django.conf import settings as django_settings
     token = request.data.get('token', '')
     email = request.data.get('email', '').strip().lower()
@@ -176,9 +204,12 @@ def emergency_reset(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def emergency_list_users(request):
-    """List all users in DB — requires SECRET_KEY as token.
-    Use this to find which emails already exist when 'email already in use'.
+    """List all users — DEBUG only, requires SECRET_KEY.
+    Disabled entirely in production.
     """
+    guard = _emergency_disabled()
+    if guard:
+        return guard
     from django.conf import settings as django_settings
     token = request.data.get('token', '')
     if not token or token != django_settings.SECRET_KEY:
@@ -191,9 +222,12 @@ def emergency_list_users(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def emergency_wipe_users(request):
-    """Delete ALL users and schools — requires SECRET_KEY + confirm flag.
-    Use this to wipe everything and start fresh from the registration screen.
+    """Delete ALL users and schools — DEBUG only, requires SECRET_KEY + confirm.
+    Disabled entirely in production.
     """
+    guard = _emergency_disabled()
+    if guard:
+        return guard
     from django.conf import settings as django_settings
     token = request.data.get('token', '')
     confirm = request.data.get('confirm', '')

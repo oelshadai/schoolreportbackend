@@ -178,6 +178,22 @@ class FeePayment(models.Model):
         blank=True,
         help_text='For daily fees auto-recorded from attendance; the school day this covers.',
     )
+    # Paystack online payment reference
+    paystack_reference = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text='Paystack transaction reference for online payments',
+    )
+    paystack_status = models.CharField(
+        max_length=20,
+        blank=True,
+        choices=[
+            ('pending', 'Pending'),
+            ('success', 'Success'),
+            ('failed', 'Failed'),
+        ],
+        help_text='Status of Paystack transaction',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

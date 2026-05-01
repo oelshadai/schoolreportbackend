@@ -21,10 +21,10 @@ class SecuritySettings:
     STUDENT_PASSWORD_MIN_LENGTH = 3
     
     # Rate Limiting
-    GENERAL_RATE_LIMIT = 100  # requests per hour
-    LOGIN_RATE_LIMIT = 15     # login attempts per hour per IP
-    API_RATE_LIMIT = 200      # API requests per hour
-    STUDENT_LOGIN_RATE_LIMIT = 20  # student login attempts per hour per IP
+    GENERAL_RATE_LIMIT = 60   # requests per hour
+    LOGIN_RATE_LIMIT = 5      # login attempts per 15 minutes per IP
+    API_RATE_LIMIT = 120      # API requests per hour
+    STUDENT_LOGIN_RATE_LIMIT = 10  # student login attempts per 15 minutes per IP
     
     # Session Management
     SESSION_TIMEOUT = 28800   # 8 hours

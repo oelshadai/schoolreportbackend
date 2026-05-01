@@ -273,9 +273,18 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             from django.http import HttpResponse
             
             pdf_content = generate_terminal_report_pdf(context)
+
+            # Guard against HTML/error payloads being downloaded as .pdf files in production.
+            if not isinstance(pdf_content, (bytes, bytearray)) or not bytes(pdf_content).startswith(b'%PDF'):
+                return Response(
+                    {"error": "PDF generation returned invalid content"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
             
             response = HttpResponse(pdf_content, content_type='application/pdf')
             response['Content-Disposition'] = f'attachment; filename="{student.student_id}_{term.name}_Report.pdf"'
+            response['X-Content-Type-Options'] = 'nosniff'
+            response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
             return response
             
         except Student.DoesNotExist:
@@ -1168,7 +1177,14 @@ class ReportCardViewSet(viewsets.ModelViewSet):
         report_card.status = 'PUBLISHED'
         report_card.published_at = timezone.now()
         report_card.save()
-        
+
+        # Notify guardian/parent
+        try:
+            from notifications.email_service import EmailService
+            EmailService.send_report_published(report_card)
+        except Exception:
+            pass  # Email failure must never break the publish action
+
         return Response({"message": "Report card published successfully"})
     
     @action(detail=True, methods=['post'])

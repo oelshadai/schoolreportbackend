@@ -8,6 +8,9 @@ from rest_framework.response import Response
 from rest_framework import status
 from datetime import date, timedelta
 import logging
+import re
+
+from .permissions import IsSuperAdmin
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +28,7 @@ def require_superadmin(request):
 # GET /api/auth/superadmin/schools/
 # ─────────────────────────────────────────────
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsSuperAdmin])
 def superadmin_schools(request):
     """List all schools with user counts and subscription status."""
     err = require_superadmin(request)
@@ -71,7 +74,7 @@ def superadmin_schools(request):
 # PATCH /api/auth/superadmin/schools/<id>/
 # ─────────────────────────────────────────────
 @api_view(['GET', 'PATCH'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsSuperAdmin])
 def superadmin_school_detail(request, school_id):
     err = require_superadmin(request)
     if err:
@@ -87,9 +90,43 @@ def superadmin_school_detail(request, school_id):
 
         if request.method == 'PATCH':
             allowed = ['name', 'location', 'email', 'phone', 'is_active']
+            errors = {}
+
+            # Validate and sanitise each allowed field
             for field in allowed:
-                if field in request.data:
-                    setattr(school, field, request.data[field])
+                if field not in request.data:
+                    continue
+                value = request.data[field]
+
+                if field == 'is_active':
+                    if not isinstance(value, bool):
+                        errors['is_active'] = 'Must be a boolean.'
+                        continue
+                    school.is_active = value
+
+                elif field == 'email':
+                    email_str = str(value).strip()[:254]
+                    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email_str):
+                        errors['email'] = 'Enter a valid email address.'
+                        continue
+                    school.email = email_str
+
+                elif field == 'phone':
+                    phone_str = re.sub(r'[^\d+\-\s()]', '', str(value))[:20]
+                    school.phone = phone_str
+
+                else:  # name, location
+                    text = str(value).strip()[:255]
+                    # Strip HTML tags
+                    text = re.sub(r'<[^>]+>', '', text)
+                    if not text:
+                        errors[field] = f'{field} cannot be empty.'
+                        continue
+                    setattr(school, field, text)
+
+            if errors:
+                return Response({'errors': errors}, status=400)
+
             school.save()
             return Response({'status': 'updated'})
 
@@ -137,7 +174,7 @@ def superadmin_school_detail(request, school_id):
 # GET /api/auth/superadmin/users/
 # ─────────────────────────────────────────────
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsSuperAdmin])
 def superadmin_users(request):
     """List all users across all schools with filters."""
     err = require_superadmin(request)
@@ -186,7 +223,7 @@ def superadmin_users(request):
 # PATCH /api/auth/superadmin/users/<id>/
 # ─────────────────────────────────────────────
 @api_view(['PATCH'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsSuperAdmin])
 def superadmin_user_update(request, user_id):
     """Activate/deactivate a user."""
     err = require_superadmin(request)
@@ -209,7 +246,7 @@ def superadmin_user_update(request, user_id):
 # GET /api/auth/superadmin/subscriptions/
 # ─────────────────────────────────────────────
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsSuperAdmin])
 def superadmin_subscriptions(request):
     """List all subscriptions across all schools."""
     err = require_superadmin(request)
@@ -274,7 +311,7 @@ def superadmin_subscriptions(request):
 # PATCH /api/auth/superadmin/subscriptions/<id>/
 # ─────────────────────────────────────────────
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsSuperAdmin])
 def superadmin_subscription_create(request):
     """Create a new subscription for a school."""
     err = require_superadmin(request)
@@ -304,7 +341,7 @@ def superadmin_subscription_create(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsSuperAdmin])
 def superadmin_subscription_extend(request, sub_id):
     """Extend a subscription by N days."""
     err = require_superadmin(request)
@@ -324,7 +361,7 @@ def superadmin_subscription_extend(request, sub_id):
 
 
 @api_view(['PATCH'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsSuperAdmin])
 def superadmin_subscription_update(request, sub_id):
     """Change subscription status."""
     err = require_superadmin(request)
@@ -347,7 +384,7 @@ def superadmin_subscription_update(request, sub_id):
 # GET /api/auth/superadmin/analytics/
 # ─────────────────────────────────────────────
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsSuperAdmin])
 def superadmin_analytics(request):
     """System-wide analytics for the SaaS platform."""
     err = require_superadmin(request)
@@ -443,7 +480,7 @@ def superadmin_analytics(request):
 # PATCH /api/auth/superadmin/plans/<id>/
 # ─────────────────────────────────────────────
 @api_view(['GET', 'POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsSuperAdmin])
 def superadmin_plans(request):
     err = require_superadmin(request)
     if err:
@@ -473,7 +510,7 @@ def superadmin_plans(request):
 
 
 @api_view(['PATCH', 'DELETE'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsSuperAdmin])
 def superadmin_plan_detail(request, plan_id):
     err = require_superadmin(request)
     if err:
@@ -495,3 +532,250 @@ def superadmin_plan_detail(request, plan_id):
         return Response({'status': 'updated'})
     except Exception as e:
         return Response({'error': str(e)}, status=400)
+
+
+# ─────────────────────────────────────────────
+# POST /api/auth/superadmin/admins/<id>/disable/
+# Disable a school admin + ALL users under their school.
+# ─────────────────────────────────────────────
+@api_view(['POST'])
+@permission_classes([IsSuperAdmin])
+def superadmin_disable_admin_cascade(request, user_id):
+    """
+    Disable a SCHOOL_ADMIN or PRINCIPAL and cascade-disable every
+    user (teachers, students, parents, other admins) belonging to
+    that same school.
+    """
+    err = require_superadmin(request)
+    if err:
+        return err
+    try:
+        from accounts.models import User
+        admin_user = User.objects.select_related('school').get(pk=user_id)
+
+        if admin_user.role not in ('SCHOOL_ADMIN', 'PRINCIPAL'):
+            return Response(
+                {'error': 'Target user must be a SCHOOL_ADMIN or PRINCIPAL.'},
+                status=400,
+            )
+
+        school = admin_user.school
+        if not school:
+            return Response({'error': 'Admin has no associated school.'}, status=400)
+
+        # Cascade-disable every user tied to this school
+        affected = User.objects.filter(school=school, is_active=True).exclude(role='SUPER_ADMIN')
+        count = affected.count()
+        affected.update(is_active=False)
+
+        logger.info(
+            f"SuperAdmin {request.user.email} cascade-disabled {count} users "
+            f"in school '{school.name}' (id={school.id})."
+        )
+        return Response({
+            'status': 'disabled',
+            'school': school.name,
+            'affected_users': count,
+        })
+    except User.DoesNotExist:
+        return Response({'error': 'User not found.'}, status=404)
+    except Exception as e:
+        logger.error(f"superadmin_disable_admin_cascade error: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+# ─────────────────────────────────────────────
+# POST /api/auth/superadmin/admins/<id>/enable/
+# Re-enable all accounts for a school admin's school.
+# ─────────────────────────────────────────────
+@api_view(['POST'])
+@permission_classes([IsSuperAdmin])
+def superadmin_enable_admin_cascade(request, user_id):
+    """Re-enable all users in the admin's school."""
+    err = require_superadmin(request)
+    if err:
+        return err
+    try:
+        from accounts.models import User
+        admin_user = User.objects.select_related('school').get(pk=user_id)
+
+        if admin_user.role not in ('SCHOOL_ADMIN', 'PRINCIPAL'):
+            return Response(
+                {'error': 'Target user must be a SCHOOL_ADMIN or PRINCIPAL.'},
+                status=400,
+            )
+
+        school = admin_user.school
+        if not school:
+            return Response({'error': 'Admin has no associated school.'}, status=400)
+
+        affected = User.objects.filter(school=school, is_active=False).exclude(role='SUPER_ADMIN')
+        count = affected.count()
+        affected.update(is_active=True)
+
+        logger.info(
+            f"SuperAdmin {request.user.email} cascade-enabled {count} users "
+            f"in school '{school.name}' (id={school.id})."
+        )
+        return Response({
+            'status': 'enabled',
+            'school': school.name,
+            'affected_users': count,
+        })
+    except User.DoesNotExist:
+        return Response({'error': 'User not found.'}, status=404)
+    except Exception as e:
+        logger.error(f"superadmin_enable_admin_cascade error: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+# ─────────────────────────────────────────────
+# GET  /api/auth/superadmin/messages/        — superadmin: list sent
+# POST /api/auth/superadmin/messages/        — superadmin: send message
+# ─────────────────────────────────────────────
+@api_view(['GET', 'POST'])
+@permission_classes([IsSuperAdmin])
+def superadmin_messages(request):
+    """Superadmin send / list sent direct messages to school admins."""
+    err = require_superadmin(request)
+    if err:
+        return err
+    try:
+        from accounts.models import DirectMessage, User
+
+        if request.method == 'POST':
+            recipient_id = request.data.get('recipient_id')
+            subject = str(request.data.get('subject', '')).strip()[:255]
+            body = str(request.data.get('body', '')).strip()
+
+            if not recipient_id or not subject or not body:
+                return Response({'error': 'recipient_id, subject and body are required.'}, status=400)
+
+            # Strip any HTML to prevent stored XSS
+            subject = re.sub(r'<[^>]+>', '', subject)
+            body = re.sub(r'<[^>]+>', '', body)
+
+            try:
+                recipient = User.objects.get(
+                    pk=recipient_id,
+                    role__in=['SCHOOL_ADMIN', 'PRINCIPAL'],
+                )
+            except User.DoesNotExist:
+                return Response({'error': 'Recipient not found or not an admin.'}, status=404)
+
+            msg = DirectMessage.objects.create(
+                sender=request.user,
+                recipient=recipient,
+                subject=subject,
+                body=body,
+            )
+            return Response({
+                'id': msg.id,
+                'recipient': f"{recipient.get_full_name()} ({recipient.email})",
+                'subject': msg.subject,
+                'created_at': msg.created_at.isoformat(),
+            }, status=201)
+
+        # GET — list all messages sent by this superadmin
+        msgs = DirectMessage.objects.filter(sender=request.user).select_related('recipient')[:200]
+        data = [{
+            'id': m.id,
+            'recipient_id': m.recipient_id,
+            'recipient_name': m.recipient.get_full_name(),
+            'recipient_email': m.recipient.email,
+            'recipient_school': m.recipient.school.name if m.recipient.school else '—',
+            'subject': m.subject,
+            'body': m.body,
+            'is_read': m.is_read,
+            'read_at': m.read_at.isoformat() if m.read_at else None,
+            'created_at': m.created_at.isoformat(),
+        } for m in msgs]
+        return Response({'messages': data, 'total': len(data)})
+    except Exception as e:
+        logger.error(f"superadmin_messages error: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+# ─────────────────────────────────────────────
+# GET  /api/auth/superadmin/messages/inbox/
+# Admin reads messages sent to them.
+# ─────────────────────────────────────────────
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_messages_inbox(request):
+    """School admin/principal reads their inbox from superadmin."""
+    if request.user.role not in ('SCHOOL_ADMIN', 'PRINCIPAL', 'SUPER_ADMIN'):
+        return Response({'error': 'Forbidden'}, status=403)
+    try:
+        from accounts.models import DirectMessage
+        if request.user.role == 'SUPER_ADMIN':
+            # Superadmin can see all messages for monitoring
+            msgs = DirectMessage.objects.select_related('sender', 'recipient').all()[:200]
+        else:
+            msgs = DirectMessage.objects.filter(recipient=request.user).select_related('sender')[:200]
+
+        data = [{
+            'id': m.id,
+            'sender_name': m.sender.get_full_name(),
+            'subject': m.subject,
+            'body': m.body,
+            'is_read': m.is_read,
+            'created_at': m.created_at.isoformat(),
+        } for m in msgs]
+        unread_count = sum(1 for m in msgs if not m.is_read)
+        return Response({'messages': data, 'unread_count': unread_count})
+    except Exception as e:
+        logger.error(f"admin_messages_inbox error: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+# ─────────────────────────────────────────────
+# PATCH /api/auth/superadmin/messages/<id>/read/
+# ─────────────────────────────────────────────
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def admin_message_mark_read(request, msg_id):
+    """Mark a message as read. Only the recipient may mark it."""
+    try:
+        from accounts.models import DirectMessage
+        from django.utils import timezone
+        msg = DirectMessage.objects.get(pk=msg_id, recipient=request.user)
+        if not msg.is_read:
+            msg.is_read = True
+            msg.read_at = timezone.now()
+            msg.save(update_fields=['is_read', 'read_at'])
+        return Response({'status': 'read'})
+    except DirectMessage.DoesNotExist:
+        return Response({'error': 'Message not found.'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+
+# ─────────────────────────────────────────────
+# GET  /api/auth/superadmin/admins/
+# List only SCHOOL_ADMIN + PRINCIPAL users (for message recipient picker)
+# ─────────────────────────────────────────────
+@api_view(['GET'])
+@permission_classes([IsSuperAdmin])
+def superadmin_list_admins(request):
+    """Quick list of all SCHOOL_ADMIN and PRINCIPAL users for the compose dialog."""
+    err = require_superadmin(request)
+    if err:
+        return err
+    try:
+        from accounts.models import User
+        admins = User.objects.filter(
+            role__in=['SCHOOL_ADMIN', 'PRINCIPAL'],
+        ).select_related('school').order_by('school__name', 'first_name')
+
+        data = [{
+            'id': u.id,
+            'name': u.get_full_name(),
+            'email': u.email,
+            'role': u.role,
+            'school': u.school.name if u.school else '—',
+            'is_active': u.is_active,
+        } for u in admins]
+        return Response({'admins': data})
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)

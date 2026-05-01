@@ -61,6 +61,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'subscriptions.middleware.SubscriptionLockMiddleware',
 ]
 
 ROOT_URLCONF = 'school_report_saas.urls'
@@ -168,8 +169,8 @@ REST_FRAMEWORK = {
 
 # JWT
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=2),      # Reduced from 8h
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),      # Reduced from 30 days
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': False,  # token_blacklist app not installed; keep False
     'AUTH_HEADER_TYPES': ('Bearer',),
@@ -177,14 +178,12 @@ SIMPLE_JWT = {
 
 # CORS Configuration
 if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
+    CORS_ALLOW_ALL_ORIGINS = False  # Never use wildcard even in dev
     CORS_ALLOWED_ORIGINS = [
         'http://localhost:8080',
         'http://localhost:8081',
         'http://127.0.0.1:8080',
         'http://127.0.0.1:8081',
-        'http://192.168.8.92:8080',
-        'http://192.168.8.92:8081',
     ]
 else:
     CORS_ALLOW_ALL_ORIGINS = False
@@ -240,6 +239,11 @@ FRONTEND_URL = config('FRONTEND_URL', default='https://your-frontend.railway.app
 PAYSTACK_SECRET_KEY = config('PAYSTACK_SECRET_KEY', default='')
 PAYSTACK_PUBLIC_KEY = config('PAYSTACK_PUBLIC_KEY', default='')
 
+# SMS — Arkesel (platform-level account; all schools use this key)
+# Get your key from https://arkesel.com → Dashboard → API Keys
+ARKESEL_API_KEY = config('ARKESEL_API_KEY', default='')
+ARKESEL_SENDER_NAME = config('ARKESEL_SENDER_NAME', default='SchoolSMS')
+
 # Extra security (production only)
 if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True
@@ -256,8 +260,8 @@ if not DEBUG:
 SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin'
 CSRF_COOKIE_HTTPONLY = True
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'Lax'
-CSRF_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SAMESITE = 'Strict'
+CSRF_COOKIE_SAMESITE = 'Strict'
 
 # Memory optimization settings
 DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB

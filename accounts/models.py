@@ -120,3 +120,33 @@ class ParentStudent(models.Model):
 
     def __str__(self):
         return f"{self.parent.get_full_name()} → {self.student.student_id} ({self.relationship})"
+
+
+class DirectMessage(models.Model):
+    """
+    A one-way message from SUPER_ADMIN to a school admin/principal.
+    """
+    sender = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='sent_messages',
+        limit_choices_to={'role': 'SUPER_ADMIN'},
+    )
+    recipient = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='received_messages',
+        limit_choices_to={'role__in': ['SCHOOL_ADMIN', 'PRINCIPAL']},
+    )
+    subject = models.CharField(max_length=255)
+    body = models.TextField()
+    is_read = models.BooleanField(default=False)
+    read_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'direct_messages'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[{self.created_at:%Y-%m-%d}] {self.sender.get_full_name()} → {self.recipient.get_full_name()}: {self.subject}"

@@ -11,8 +11,8 @@ class SubscriptionPlanAdmin(admin.ModelAdmin):
 
 @admin.register(Subscription)
 class SubscriptionAdmin(admin.ModelAdmin):
-	list_display = ("school", "plan", "start_date", "end_date", "status", "auto_renew")
-	list_filter = ("status", "auto_renew", "plan")
+	list_display = ("school", "plan_type", "start_date", "end_date", "status", "auto_renew")
+	list_filter = ("status", "auto_renew", "plan_type")
 
 
 @admin.register(Payment)

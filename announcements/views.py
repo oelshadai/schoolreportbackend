@@ -1,8 +1,11 @@
+import logging
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from .models import Announcement
 from .serializers import AnnouncementSerializer
+
+logger = logging.getLogger(__name__)
 
 class AnnouncementViewSet(viewsets.ModelViewSet):
     serializer_class = AnnouncementSerializer
@@ -20,7 +23,9 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(audience__in=['ALL', 'STUDENTS'])
         elif user.role == 'TEACHER':
             queryset = queryset.filter(audience__in=['ALL', 'TEACHERS'])
-        
+        elif user.role == 'PARENT':
+            queryset = queryset.filter(audience__in=['ALL', 'PARENTS'])
+
         return queryset.order_by('-is_pinned', '-created_at')
     
     def create(self, request, *args, **kwargs):
@@ -30,7 +35,38 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
                 {'error': 'Only administrators can create announcements'}, 
                 status=status.HTTP_403_FORBIDDEN
             )
-        return super().create(request, *args, **kwargs)
+
+        send_sms = request.data.get('send_sms_to_parents', False)
+        response = super().create(request, *args, **kwargs)
+
+        if send_sms and response.status_code == 201:
+            try:
+                from notifications.sms_service import SmsService
+                from students.models import Student
+                school = request.user.school
+                if getattr(school, 'sms_enabled', False):
+                    students_qs = Student.objects.filter(
+                        school=school, is_active=True
+                    ).exclude(guardian_phone='')
+                    phones = list({s.guardian_phone for s in students_qs if s.guardian_phone})
+                    if phones:
+                        title = request.data.get('title', 'Announcement')
+                        content = request.data.get('content', '')
+                        message = f'[{school.name}] {title}: {content}'
+                        if len(message) > 160:
+                            message = message[:157] + '...'
+                        sent = SmsService.send(phones, message, school)
+                        response.data['sms_sent'] = len(phones) if sent else 0
+                    else:
+                        response.data['sms_sent'] = 0
+                else:
+                    response.data['sms_sent'] = 0
+                    response.data['sms_note'] = 'SMS is not enabled for this school'
+            except Exception as e:
+                logger.error(f'Announcement SMS error: {e}')
+                response.data['sms_sent'] = 0
+
+        return response
     
     def perform_create(self, serializer):
         serializer.save(school=self.request.user.school, created_by=self.request.user)

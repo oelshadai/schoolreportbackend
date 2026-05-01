@@ -8,7 +8,8 @@ from .serializers import (
     ClassSerializer, SubjectSerializer, ClassSubjectSerializer,
     GradingScaleSerializer, BulkAssignmentSerializer, BulkRemovalSerializer,
     SchoolSettingsSerializer, ParentPortalSettingsSerializer, ParentPortalWriteSerializer,
-    StaffPermissionSerializer,
+    StaffPermissionSerializer, SmsSettingsSerializer,
+    SmsPurchaseOrderSerializer, SMS_BUNDLES,
 )
 from django.contrib.auth import get_user_model
 from students.models import Student
@@ -582,6 +583,328 @@ class ParentPortalSettingsView(APIView):
                 'data': ParentPortalSettingsSerializer(request.user.school).data,
             })
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SmsSettingsView(APIView):
+    """GET / PATCH the SMS notification settings for the school."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _require_admin(self, user):
+        if not user.school:
+            return Response({'error': 'User not associated with a school.'}, status=status.HTTP_400_BAD_REQUEST)
+        if user.role not in ('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'):
+            return Response({'error': 'Only school admins can manage SMS settings.'}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def get(self, request):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        return Response(SmsSettingsSerializer(request.user.school).data)
+
+    def patch(self, request):
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        serializer = SmsSettingsSerializer(request.user.school, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                'message': 'SMS settings saved.',
+                'data': SmsSettingsSerializer(request.user.school).data,
+            })
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ---------------------------------------------------------------------------
+# SMS Credit Purchase  —  admin buys credits via Paystack; balance auto-credited
+# ---------------------------------------------------------------------------
+
+class SmsPurchaseView(APIView):
+    """
+    GET  /schools/sms-purchase/            — list orders + current balance + bundles
+    POST /schools/sms-purchase/initiate/   — create order & initiate Paystack checkout
+    GET  /schools/sms-purchase/verify/     — verify Paystack ref & credit balance
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _require_admin(self, user):
+        if not user.school:
+            return Response({'error': 'User not associated with a school.'}, status=status.HTTP_400_BAD_REQUEST)
+        if user.role not in ('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'):
+            return Response({'error': 'Only school admins can purchase SMS credits.'}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def get(self, request):
+        """Return SMS balance, bundles, and purchase history."""
+        err = self._require_admin(request.user)
+        if err:
+            return err
+        from .models import SmsPurchaseOrder
+        orders = SmsPurchaseOrder.objects.filter(school=request.user.school).order_by('-created_at')[:20]
+        return Response({
+            'sms_balance': request.user.school.sms_balance,
+            'sms_price_per_unit': '0.10',
+            'bundles': SMS_BUNDLES,
+            'orders': SmsPurchaseOrderSerializer(orders, many=True).data,
+        })
+
+
+class SmsPurchaseInitiateView(APIView):
+    """POST /schools/sms-purchase/initiate/ — creates order + Paystack checkout."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _require_admin(self, user):
+        if not user.school:
+            return Response({'error': 'User not associated with a school.'}, status=status.HTTP_400_BAD_REQUEST)
+        if user.role not in ('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'):
+            return Response({'error': 'Only school admins can purchase SMS credits.'}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def post(self, request):
+        import uuid
+        import requests as http_requests
+        from decimal import Decimal
+        from django.conf import settings as django_settings
+        from .models import SmsPurchaseOrder
+
+        err = self._require_admin(request.user)
+        if err:
+            return err
+
+        school = request.user.school
+        bundle_id = request.data.get('bundle_id')
+        custom_units = request.data.get('custom_units')
+
+        # Resolve sms_units and amount
+        if bundle_id:
+            bundle = next((b for b in SMS_BUNDLES if b['id'] == int(bundle_id)), None)
+            if not bundle:
+                return Response({'error': 'Invalid bundle.'}, status=status.HTTP_400_BAD_REQUEST)
+            sms_units = bundle['sms_units']
+            amount_ghs = Decimal(bundle['amount_ghs'])
+        elif custom_units:
+            try:
+                sms_units = int(custom_units)
+                if sms_units < 10:
+                    return Response({'error': 'Minimum purchase is 10 SMS units.'}, status=status.HTTP_400_BAD_REQUEST)
+            except (ValueError, TypeError):
+                return Response({'error': 'Invalid custom_units.'}, status=status.HTTP_400_BAD_REQUEST)
+            amount_ghs = Decimal('0.10') * sms_units
+        else:
+            return Response({'error': 'Provide bundle_id or custom_units.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Paystack platform keys
+        secret_key = getattr(django_settings, 'PAYSTACK_SECRET_KEY', '')
+        public_key = getattr(django_settings, 'PAYSTACK_PUBLIC_KEY', '')
+        if not secret_key:
+            return Response({'error': 'Payment gateway not configured. Contact support.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        payer_email = request.user.email
+        if not payer_email:
+            return Response({'error': 'Account email required for payment.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reference = f"SMS-{school.id}-{uuid.uuid4().hex[:10].upper()}"
+
+        # Create pending order
+        order = SmsPurchaseOrder.objects.create(
+            school=school,
+            requested_by=request.user,
+            sms_units=sms_units,
+            amount_ghs=amount_ghs,
+            status=SmsPurchaseOrder.STATUS_PENDING,
+            paystack_reference=reference,
+        )
+
+        # Paystack amount is in pesewas (GHS * 100)
+        amount_pesewas = int(amount_ghs * 100)
+        frontend_url = getattr(django_settings, 'FRONTEND_URL', '')
+
+        payload = {
+            'email': payer_email,
+            'amount': amount_pesewas,
+            'reference': reference,
+            'currency': 'GHS',
+            'metadata': {
+                'order_id': order.id,
+                'school_id': school.id,
+                'sms_units': sms_units,
+                'purchase_type': 'sms_credits',
+            },
+            'callback_url': f"{frontend_url}/school/sms-purchase?paystack_ref={reference}",
+        }
+        headers = {
+            'Authorization': f'Bearer {secret_key}',
+            'Content-Type': 'application/json',
+        }
+
+        try:
+            resp = http_requests.post('https://api.paystack.co/transaction/initialize', json=payload, headers=headers, timeout=30)
+            data = resp.json()
+            if resp.status_code == 200 and data.get('status'):
+                return Response({
+                    'authorization_url': data['data']['authorization_url'],
+                    'reference': reference,
+                    'sms_units': sms_units,
+                    'amount_ghs': str(amount_ghs),
+                    'public_key': public_key,
+                })
+            order.status = SmsPurchaseOrder.STATUS_FAILED
+            order.save(update_fields=['status'])
+            return Response({'error': data.get('message', 'Paystack error')}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception as e:
+            order.status = SmsPurchaseOrder.STATUS_FAILED
+            order.save(update_fields=['status'])
+            return Response({'error': f'Payment gateway unreachable: {e}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+class SmsPurchaseVerifyView(APIView):
+    """GET /schools/sms-purchase/verify/?reference=<ref> — verify & auto-credit."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        import requests as http_requests
+        from django.conf import settings as django_settings
+        from django.utils import timezone
+        from django.db import transaction
+        from .models import SmsPurchaseOrder
+
+        reference = request.query_params.get('reference', '').strip()
+        if not reference:
+            return Response({'error': 'reference is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            order = SmsPurchaseOrder.objects.select_for_update().get(
+                paystack_reference=reference,
+                school=request.user.school,
+            )
+        except SmsPurchaseOrder.DoesNotExist:
+            return Response({'error': 'Order not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Already processed — return cached result
+        if order.status == SmsPurchaseOrder.STATUS_PAID:
+            return Response({
+                'success': True,
+                'sms_units': order.sms_units,
+                'new_balance': request.user.school.sms_balance,
+                'message': f'{order.sms_units} SMS credits already credited.',
+            })
+
+        secret_key = getattr(django_settings, 'PAYSTACK_SECRET_KEY', '')
+        headers = {'Authorization': f'Bearer {secret_key}'}
+        url = f'https://api.paystack.co/transaction/verify/{reference}'
+
+        try:
+            resp = http_requests.get(url, headers=headers, timeout=30)
+            data = resp.json()
+        except Exception as e:
+            return Response({'error': f'Cannot reach payment gateway: {e}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        if not (resp.status_code == 200 and data.get('status') and data['data'].get('status') == 'success'):
+            order.status = SmsPurchaseOrder.STATUS_FAILED
+            order.save(update_fields=['status', 'updated_at'])
+            return Response({'success': False, 'message': 'Payment not successful.'})
+
+        # Credit the balance atomically
+        with transaction.atomic():
+            School.objects.filter(pk=order.school_id).update(
+                sms_balance=models.F('sms_balance') + order.sms_units
+            )
+            order.status = SmsPurchaseOrder.STATUS_PAID
+            order.credited_at = timezone.now()
+            order.save(update_fields=['status', 'credited_at', 'updated_at'])
+
+        # Refresh school to get updated balance
+        order.school.refresh_from_db(fields=['sms_balance'])
+        new_balance = order.school.sms_balance
+
+        return Response({
+            'success': True,
+            'sms_units': order.sms_units,
+            'new_balance': new_balance,
+            'message': f'{order.sms_units} SMS credits added. New balance: {new_balance}',
+        })
+
+
+# ---------------------------------------------------------------------------
+# Paystack Webhook  — server-to-server notification from Paystack
+# Called by Paystack directly; HMAC-SHA512 signature verified.
+# This ensures credits are applied even if the browser redirect is missed.
+# ---------------------------------------------------------------------------
+
+class PaystackWebhookView(APIView):
+    """POST /schools/paystack-webhook/ — Paystack server callback."""
+    authentication_classes = []  # no JWT — Paystack signs requests instead
+    permission_classes = []
+
+    def post(self, request):
+        import hashlib
+        import hmac
+        import json
+        import requests as http_requests
+        from django.conf import settings as django_settings
+        from django.utils import timezone
+        from django.db import transaction
+        from .models import SmsPurchaseOrder
+
+        # ── Verify HMAC-SHA512 signature ───────────────────────────────────
+        secret_key = getattr(django_settings, 'PAYSTACK_SECRET_KEY', '')
+        paystack_signature = request.headers.get('x-paystack-signature', '')
+        raw_body = request.body
+
+        expected = hmac.new(
+            secret_key.encode('utf-8'),
+            raw_body,
+            hashlib.sha512,
+        ).hexdigest() if secret_key else ''
+
+        if not hmac.compare_digest(expected, paystack_signature):
+            return Response({'error': 'Invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ── Parse event ────────────────────────────────────────────────────
+        try:
+            payload = json.loads(raw_body)
+        except json.JSONDecodeError:
+            return Response({'error': 'Invalid JSON'}, status=status.HTTP_400_BAD_REQUEST)
+
+        event = payload.get('event', '')
+        data = payload.get('data', {})
+
+        # We only care about successful charge events for SMS purchases
+        if event != 'charge.success':
+            return Response({'status': 'ignored'})
+
+        # Check metadata to confirm this is an SMS purchase
+        metadata = data.get('metadata', {})
+        if metadata.get('purchase_type') != 'sms_credits':
+            return Response({'status': 'ignored'})
+
+        reference = data.get('reference', '')
+        if not reference:
+            return Response({'status': 'ignored'})
+
+        # ── Find and credit the order ──────────────────────────────────────
+        try:
+            with transaction.atomic():
+                order = SmsPurchaseOrder.objects.select_for_update().get(
+                    paystack_reference=reference,
+                )
+                if order.status == SmsPurchaseOrder.STATUS_PAID:
+                    # Already credited (e.g. by the verify endpoint)
+                    return Response({'status': 'already_credited'})
+
+                School.objects.filter(pk=order.school_id).update(
+                    sms_balance=models.F('sms_balance') + order.sms_units
+                )
+                order.status = SmsPurchaseOrder.STATUS_PAID
+                order.credited_at = timezone.now()
+                order.save(update_fields=['status', 'credited_at', 'updated_at'])
+
+        except SmsPurchaseOrder.DoesNotExist:
+            # Order not found — could be a non-SMS payment; ignore silently
+            return Response({'status': 'ignored'})
+
+        return Response({'status': 'ok'})
 
 
 # ---------------------------------------------------------------------------

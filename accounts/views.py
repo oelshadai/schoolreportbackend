@@ -162,15 +162,15 @@ class SecureTokenObtainPairView(TokenObtainPairView):
         ip_key = f"login_ip_attempts:{client_ip}"
         ip_attempts = cache.get(ip_key, 0)
         
-        if ip_attempts >= 15:  # 15 attempts per IP per hour
-            cache.set(f"temp_blocked_ip:{client_ip}", True, 3600)  # Block for 1 hour
+        if ip_attempts >= 5:  # 5 attempts per IP per 15 minutes
+            cache.set(f"temp_blocked_ip:{client_ip}", True, 900)  # Block for 15 minutes
             return {
                 'allowed': False,
                 'message': 'Too many login attempts from this IP',
                 'status_code': status.HTTP_429_TOO_MANY_REQUESTS
             }
         
-        cache.set(ip_key, ip_attempts + 1, 3600)
+        cache.set(ip_key, ip_attempts + 1, 900)  # 15-minute window
         return {'allowed': True}
     
     def _check_email_rate_limit(self, email: str) -> Dict[str, Any]:
@@ -178,14 +178,14 @@ class SecureTokenObtainPairView(TokenObtainPairView):
         email_key = f"login_email_attempts:{email}"
         email_attempts = cache.get(email_key, 0)
         
-        if email_attempts >= 8:  # 8 attempts per email per 30 minutes
+        if email_attempts >= 5:  # 5 attempts per email per 15 minutes
             return {
                 'allowed': False,
                 'message': 'Too many login attempts for this account',
                 'status_code': status.HTTP_429_TOO_MANY_REQUESTS
             }
         
-        cache.set(email_key, email_attempts + 1, 1800)
+        cache.set(email_key, email_attempts + 1, 900)  # 15-minute window
         return {'allowed': True}
     
     def _check_global_rate_limit(self) -> Dict[str, Any]:
@@ -712,5 +712,6 @@ class RegisterSchoolView(APIView):
             'id': school.id,
             'name': school.name,
             'subscription_plan': school.subscription_plan,
+            'subscription_expires': str(school.subscription_expires) if school.subscription_expires else None,
         }
         return Response(data, status=status.HTTP_201_CREATED)

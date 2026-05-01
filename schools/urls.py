@@ -5,7 +5,9 @@ from .views import (
     ClassViewSet, SubjectViewSet, ClassSubjectViewSet,
     GradingScaleViewSet, SchoolDashboardView, SchoolSettingsView,
     ParentPortalSettingsView, ParentManagementViewSet,
-    StaffPermissionViewSet,
+    StaffPermissionViewSet, SmsSettingsView,
+    SmsPurchaseView, SmsPurchaseInitiateView, SmsPurchaseVerifyView,
+    PaystackWebhookView,
 )
 
 router = DefaultRouter()
@@ -23,4 +25,9 @@ urlpatterns = [
     path('dashboard/', SchoolDashboardView.as_view(), name='school_dashboard'),
     path('settings/', SchoolSettingsView.as_view(), name='school_settings'),
     path('parent-portal-settings/', ParentPortalSettingsView.as_view(), name='parent_portal_settings'),
+    path('sms-settings/', SmsSettingsView.as_view(), name='sms_settings'),
+    path('sms-purchase/', SmsPurchaseView.as_view(), name='sms_purchase'),
+    path('sms-purchase/initiate/', SmsPurchaseInitiateView.as_view(), name='sms_purchase_initiate'),
+    path('sms-purchase/verify/', SmsPurchaseVerifyView.as_view(), name='sms_purchase_verify'),
+    path('paystack-webhook/', PaystackWebhookView.as_view(), name='paystack_webhook'),
 ] + router.urls
