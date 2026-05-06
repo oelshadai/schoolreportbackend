@@ -116,6 +116,7 @@ class FeePaymentCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         from django.utils import timezone
+        from decimal import Decimal
 
         request = self.context.get('request')
         validated_data['school'] = request.user.school
@@ -132,11 +133,13 @@ class FeePaymentCreateSerializer(serializers.ModelSerializer):
             defaults={'total_amount': 0, 'amount_paid': 0, 'balance': 0}
         )
         student_fee.amount_paid += validated_data['amount_paid']
-        student_fee.balance = student_fee.total_amount - student_fee.amount_paid
+        _balance = student_fee.total_amount - student_fee.amount_paid
+        # Clamp to 0 — overpayments are recorded in TermBill, not as a negative debt here
+        student_fee.balance = _balance if _balance > Decimal('0') else Decimal('0')
         student_fee.last_payment_date = timezone.now()
-        if student_fee.balance <= 0:
+        if student_fee.total_amount > 0 and student_fee.balance <= Decimal('0'):
             student_fee.status = 'PAID'
-        elif student_fee.amount_paid > 0:
+        elif student_fee.amount_paid > Decimal('0'):
             student_fee.status = 'PARTIAL'
         student_fee.save()
 

@@ -229,6 +229,10 @@ class TeacherAttendanceViewSet(viewsets.ViewSet):
         saved_count = 0
         updated_count = 0
         errors = []
+        sms_sent_count = 0
+        sms_failed_count = 0
+        sms_no_phone_count = 0
+        sms_details = []
         
         for item in attendance_data:
             student_id = item.get('student_id')
@@ -270,13 +274,26 @@ class TeacherAttendanceViewSet(viewsets.ViewSet):
                 # SMS attendance alert to guardian
                 try:
                     from notifications.sms_service import SmsService
-                    SmsService.send_attendance_alert(
-                        student=student,
-                        status=status_value,
-                        date_str=selected_date.strftime('%d %b %Y'),
-                        school=cls.school,
-                    )
+                    _phone = getattr(student, 'guardian_phone', '') or ''
+                    if not _phone:
+                        sms_no_phone_count += 1
+                        sms_details.append({'student': student.get_full_name(), 'result': 'no_phone'})
+                    else:
+                        _sms_ok = SmsService.send_attendance_alert(
+                            student=student,
+                            status=status_value,
+                            date_str=selected_date.strftime('%d %b %Y'),
+                            school=cls.school,
+                        )
+                        if _sms_ok:
+                            sms_sent_count += 1
+                            sms_details.append({'student': student.get_full_name(), 'result': 'sent'})
+                        else:
+                            sms_failed_count += 1
+                            sms_details.append({'student': student.get_full_name(), 'result': 'failed'})
                 except Exception as sms_err:
+                    sms_failed_count += 1
+                    sms_details.append({'student': student.get_full_name(), 'result': 'error', 'error': str(sms_err)})
                     print(f"DEBUG: SMS alert failed for student {student_id}: {sms_err}")
 
                 if created:
@@ -313,6 +330,30 @@ class TeacherAttendanceViewSet(viewsets.ViewSet):
                 except Student.DoesNotExist:
                     pass
         
+        # Create SmsLog entry for the batch of attendance alerts
+        sms_total = sms_sent_count + sms_failed_count + sms_no_phone_count
+        if sms_total > 0:
+            try:
+                from notifications.models import SmsLog
+                overall_status = 'success' if sms_sent_count > 0 and sms_failed_count == 0 else (
+                    'partial' if sms_sent_count > 0 else 'failed'
+                )
+                SmsLog.objects.create(
+                    school=cls.school,
+                    sent_by=request.user,
+                    sms_type='attendance',
+                    status=overall_status,
+                    total_recipients=sms_total,
+                    sent_count=sms_sent_count,
+                    failed_count=sms_failed_count,
+                    no_phone_count=sms_no_phone_count,
+                    message_preview=f'Attendance alert for {selected_date.strftime("%d %b %Y")}',
+                    filters_used={'class_id': class_id, 'date': str(selected_date)},
+                    details=sms_details,
+                )
+            except Exception as log_err:
+                print(f'DEBUG: SmsLog creation failed: {log_err}')
+
         return Response({
             'message': 'Attendance saved successfully',
             'saved_count': saved_count,

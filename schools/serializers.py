@@ -26,47 +26,20 @@ class ParentPortalSettingsSerializer(serializers.ModelSerializer):
             'parent_can_pay_fees_online',
             'parent_can_message_teachers',
             'parent_support_email',
-            'paystack_public_key',
-            # NOTE: paystack_secret_key is intentionally excluded from read output
         ]
 
     def to_representation(self, instance):
-        data = super().to_representation(instance)
-        # Tell the frontend whether a secret key is saved, without exposing it
-        data['paystack_secret_key_saved'] = bool(instance.paystack_secret_key)
-        return data
+        return super().to_representation(instance)
 
     def validate(self, attrs):
-        # If online payments are being enabled, a secret key must be present
-        enabling = attrs.get('parent_can_pay_fees_online', False)
-        if enabling:
-            incoming_secret = attrs.get('paystack_secret_key', '')
-            existing_secret = getattr(self.instance, 'paystack_secret_key', '') if self.instance else ''
-            if not incoming_secret and not existing_secret:
-                raise serializers.ValidationError(
-                    {'paystack_secret_key': 'Paystack secret key is required to enable online payments.'}
-                )
         return attrs
 
 
 class ParentPortalWriteSerializer(ParentPortalSettingsSerializer):
-    """Same as above but also accepts (optional) secret key write."""
-
-    paystack_secret_key = serializers.CharField(
-        max_length=100, required=False, allow_blank=True,
-        write_only=True,
-        help_text='Leave blank to keep existing key',
-    )
+    """Write serializer — same fields as read (keys come from env vars)."""
 
     class Meta(ParentPortalSettingsSerializer.Meta):
-        fields = ParentPortalSettingsSerializer.Meta.fields + ['paystack_secret_key']
-
-    def update(self, instance, validated_data):
-        # Only overwrite secret key if a new non-blank value was provided
-        new_secret = validated_data.pop('paystack_secret_key', '').strip()
-        if new_secret:
-            validated_data['paystack_secret_key'] = new_secret
-        return super().update(instance, validated_data)
+        fields = ParentPortalSettingsSerializer.Meta.fields
 
 
 class SmsSettingsSerializer(serializers.ModelSerializer):
@@ -76,6 +49,7 @@ class SmsSettingsSerializer(serializers.ModelSerializer):
         model = School
         fields = [
             'sms_enabled',
+            'sms_balance',
             'arkesel_api_key',
             'sms_sender_name',
             'sms_attendance_enabled',

@@ -244,6 +244,11 @@ PAYSTACK_PUBLIC_KEY = config('PAYSTACK_PUBLIC_KEY', default='')
 ARKESEL_API_KEY = config('ARKESEL_API_KEY', default='')
 ARKESEL_SENDER_NAME = config('ARKESEL_SENDER_NAME', default='SchoolSMS')
 
+# Web Push (VAPID)
+VAPID_PUBLIC_KEY = config('VAPID_PUBLIC_KEY', default='BCOQPyoGEBtB6ypPn3u5nOgeIoeIA_ruKyaPXOpme3b8a-qUjNEFwbM2823k3NHs0-Kl6U8xEfUSco9co8yWz7w')
+VAPID_PRIVATE_KEY = config('VAPID_PRIVATE_KEY', default='BjcBocBrdsRsC2oiC90dbNMldSWFHNbiH87J0Y2OszE')
+VAPID_EMAIL = config('VAPID_EMAIL', default='admin@schoolreport.app')
+
 # Extra security (production only)
 if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True

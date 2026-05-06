@@ -56,7 +56,26 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
                         if len(message) > 160:
                             message = message[:157] + '...'
                         sent = SmsService.send(phones, message, school)
-                        response.data['sms_sent'] = len(phones) if sent else 0
+                        sms_sent_count = len(phones) if sent else 0
+                        response.data['sms_sent'] = sms_sent_count
+                        # Log the announcement SMS dispatch
+                        try:
+                            from notifications.models import SmsLog
+                            SmsLog.objects.create(
+                                school=school,
+                                sent_by=request.user,
+                                sms_type='general',
+                                status='success' if sent else 'failed',
+                                total_recipients=len(phones),
+                                sent_count=sms_sent_count,
+                                failed_count=0 if sent else len(phones),
+                                no_phone_count=0,
+                                message_preview=message[:160],
+                                filters_used={'announcement_title': request.data.get('title', '')},
+                                details=[],
+                            )
+                        except Exception as log_err:
+                            logger.warning(f'SmsLog creation failed for announcement: {log_err}')
                     else:
                         response.data['sms_sent'] = 0
                 else:

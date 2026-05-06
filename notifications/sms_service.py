@@ -72,15 +72,22 @@ class SmsService:
         if not clean_numbers:
             return False
 
-        # ── Balance check ──────────────────────────────────────────────────
+        # ── Balance check (fresh from DB to avoid stale in-memory value) ────
         if school:
-            current_balance = getattr(school, 'sms_balance', 0)
+            try:
+                from schools.models import School as SchoolModel
+                fresh = SchoolModel.objects.filter(pk=school.pk).values('sms_balance').first()
+                current_balance = fresh['sms_balance'] if fresh else 0
+            except Exception:
+                current_balance = getattr(school, 'sms_balance', 0)
             num_to_send = len(clean_numbers)
             if current_balance < num_to_send:
                 logger.warning(
                     f'School "{school.name}" has insufficient SMS balance '
                     f'({current_balance} < {num_to_send}). SMS not sent.'
                 )
+                # Sync the in-memory object so callers see the real value
+                school.sms_balance = current_balance
                 return False
 
         payload = {
@@ -96,22 +103,29 @@ class SmsService:
         try:
             resp = http_requests.post(ARKESEL_API_URL, json=payload, headers=headers, timeout=15)
             data = resp.json()
+            print(f"DEBUG SMS ARKESEL: status={resp.status_code} body={data}")
             if resp.status_code == 200 and data.get('status') == 'success':
-                logger.info(f'SMS sent to {len(clean_numbers)} recipient(s). Ref: {data.get("data", {}).get("id", "")}')
+                # data['data'] is a list of {id, recipient} dicts from Arkesel v2
+                ref_data = data.get('data', [])
+                ref_id = ref_data[0].get('id', '') if isinstance(ref_data, list) and ref_data else ''
+                logger.info(f'SMS sent to {len(clean_numbers)} recipient(s). Ref: {ref_id}')
                 # ── Deduct balance ─────────────────────────────────────────
                 if school:
                     try:
                         from django.db.models import F
                         from schools.models import School as SchoolModel
-                        SchoolModel.objects.filter(pk=school.pk).update(
+                        rows = SchoolModel.objects.filter(pk=school.pk).update(
                             sms_balance=F('sms_balance') - len(clean_numbers)
                         )
+                        print(f"DEBUG SMS DEDUCT: deducted {len(clean_numbers)} from school {school.pk}, rows_updated={rows}")
                         school.sms_balance = max(0, getattr(school, 'sms_balance', 0) - len(clean_numbers))
                     except Exception as deduct_err:
                         logger.error(f'Failed to deduct SMS balance: {deduct_err}')
+                        print(f"DEBUG SMS DEDUCT ERROR: {deduct_err}")
                 return True
             else:
-                logger.error(f'Arkesel SMS error: {data}')
+                logger.error(f'Arkesel SMS error: status={resp.status_code} body={data}')
+                print(f"DEBUG SMS FAILED: status={resp.status_code} body={data}")
                 return False
         except Exception as e:
             logger.error(f'Arkesel SMS exception: {e}')
