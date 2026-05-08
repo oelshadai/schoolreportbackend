@@ -2,6 +2,7 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
+from django.conf import settings as django_settings
 from django.db.models import Q, Sum, Count
 from .models import FeeType, FeeStructure, StudentFee, FeePayment, FeeCollection, TermBill, StudentFeeSubType
 from .serializers import (
@@ -626,8 +627,11 @@ class FeeReportViewSet(viewsets.ViewSet):
                 daily_expected += float(structure.amount) * term_days * student_count
 
         # --- Non-daily (term/year) stats from TermBills ---
-        non_daily_collected = FeePayment.objects.filter(
+        # Keep these metrics on the same basis (TermBill) so collected % is coherent.
+        non_daily_collected = TermBill.objects.filter(
             school=school,
+        ).exclude(
+            status='WAIVED',
         ).exclude(
             fee_type__collection_frequency='DAILY',
         ).aggregate(total=Sum('amount_paid'))['total'] or 0
@@ -640,6 +644,12 @@ class FeeReportViewSet(viewsets.ViewSet):
             fee_type__collection_frequency='DAILY',
         ).aggregate(total=Sum('balance'))['total'] or 0
         non_daily_outstanding = max(0, float(non_daily_outstanding))
+
+        non_daily_payment_count = FeePayment.objects.filter(
+            school=school,
+        ).exclude(
+            fee_type__collection_frequency='DAILY',
+        ).count()
 
         # Legacy totals kept for backwards-compat
         total_billed = TermBill.objects.filter(
@@ -688,6 +698,7 @@ class FeeReportViewSet(viewsets.ViewSet):
             'daily_expected': float(daily_expected),
             'non_daily_collected': float(non_daily_collected),
             'non_daily_outstanding': float(non_daily_outstanding),
+            'non_daily_payment_count': non_daily_payment_count,
             'by_fee_type': list(by_fee_type),
             'by_collector': list(by_collector)
         })
@@ -956,6 +967,39 @@ class TermBillViewSet(viewsets.ModelViewSet):
                     )
                     created_count += 1
 
+        # ── Update StudentFee.total_amount for all affected students ──────────
+        # This keeps the "Student Fees" running-total tab accurate.
+        if created_count > 0 or updated_count > 0:
+            try:
+                from decimal import Decimal as _Dec
+                from django.db.models import Sum as _Sum
+                for student in students:
+                    total_billed = TermBill.objects.filter(
+                        student=student, school=school
+                    ).aggregate(t=_Sum('amount_billed'))['t'] or _Dec('0')
+                    sf, _ = StudentFee.objects.get_or_create(
+                        student=student,
+                        school=school,
+                        defaults={
+                            'total_amount': total_billed,
+                            'amount_paid': _Dec('0'),
+                            'balance': total_billed,
+                        },
+                    )
+                    if sf.pk:
+                        sf.total_amount = total_billed
+                        _bal = total_billed - sf.amount_paid
+                        sf.balance = _bal if _bal > _Dec('0') else _Dec('0')
+                        if sf.total_amount > 0 and sf.balance <= _Dec('0'):
+                            sf.status = 'PAID'
+                        elif sf.amount_paid > _Dec('0'):
+                            sf.status = 'PARTIAL'
+                        else:
+                            sf.status = 'NOT_STARTED'
+                        sf.save()
+            except Exception as _sf_err:
+                logger.warning(f'StudentFee sync after bill generate failed: {_sf_err}')
+
         # Send email notifications to guardians/parents for newly created bills
         if created_count > 0:
             try:
@@ -1139,7 +1183,7 @@ class TermBillViewSet(viewsets.ModelViewSet):
                 'grand_total_paid': total_paid_bills + total_daily_paid,
             },
             'online_payments_enabled': school.parent_can_pay_fees_online if hasattr(school, 'parent_can_pay_fees_online') else False,
-            'paystack_public_key': school.paystack_public_key if (hasattr(school, 'paystack_public_key') and school.parent_can_pay_fees_online) else None,
+            'paystack_public_key': getattr(django_settings, 'PAYSTACK_PUBLIC_KEY', '') if getattr(school, 'parent_can_pay_fees_online', False) else None,
         })
 
     @action(detail=True, methods=['post'], url_path='initiate-paystack')
@@ -1152,7 +1196,6 @@ class TermBillViewSet(viewsets.ModelViewSet):
         """
         import uuid
         import requests as http_requests
-        from django.conf import settings as django_settings
 
         role = getattr(request.user, 'role', '')
         school = request.user.school
@@ -1179,9 +1222,11 @@ class TermBillViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Not permitted'}, status=status.HTTP_403_FORBIDDEN)
 
         # Check online payments enabled
+        secret_key = getattr(django_settings, 'PAYSTACK_SECRET_KEY', '')
+        public_key = getattr(django_settings, 'PAYSTACK_PUBLIC_KEY', '')
         if not getattr(school, 'parent_can_pay_fees_online', False):
             return Response({'error': 'Online payments are not enabled for this school.'}, status=status.HTTP_400_BAD_REQUEST)
-        if not getattr(school, 'paystack_secret_key', ''):
+        if not secret_key:
             return Response({'error': 'Payment gateway not configured.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Get the bill — must belong to this student + school
@@ -1208,7 +1253,7 @@ class TermBillViewSet(viewsets.ModelViewSet):
 
         paystack_url = 'https://api.paystack.co/transaction/initialize'
         headers = {
-            'Authorization': f'Bearer {school.paystack_secret_key}',
+            'Authorization': f'Bearer {secret_key}',
             'Content-Type': 'application/json',
         }
         payload = {
@@ -1239,7 +1284,7 @@ class TermBillViewSet(viewsets.ModelViewSet):
             'authorization_url': data['data']['authorization_url'],
             'reference': reference,
             'amount': amount_to_pay,
-            'public_key': getattr(school, 'paystack_public_key', ''),
+            'public_key': public_key,
         })
 
     @action(detail=False, methods=['get'], url_path='verify-paystack')
@@ -1262,7 +1307,8 @@ class TermBillViewSet(viewsets.ModelViewSet):
         if role not in ('STUDENT', 'PARENT'):
             return Response({'error': 'Not permitted'}, status=status.HTTP_403_FORBIDDEN)
 
-        if not getattr(school, 'paystack_secret_key', ''):
+        secret_key = getattr(django_settings, 'PAYSTACK_SECRET_KEY', '')
+        if not secret_key:
             return Response({'error': 'Payment gateway not configured.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Extract bill_id from reference format: FEE-<id>-<hex>
@@ -1282,7 +1328,7 @@ class TermBillViewSet(viewsets.ModelViewSet):
 
         # Verify with Paystack
         verify_url = f'https://api.paystack.co/transaction/verify/{reference}'
-        headers = {'Authorization': f'Bearer {school.paystack_secret_key}'}
+        headers = {'Authorization': f'Bearer {secret_key}'}
         try:
             resp = http_requests.get(verify_url, headers=headers, timeout=30)
             resp.raise_for_status()
@@ -1314,6 +1360,30 @@ class TermBillViewSet(viewsets.ModelViewSet):
         # Update TermBill amount_paid (balance is computed by the model's save())
         bill.amount_paid = Decimal(str(bill.amount_paid)) + amount_paid
         bill.save()
+
+        # Update running StudentFee totals so the Student Fees tab stays accurate
+        try:
+            sf, _ = StudentFee.objects.get_or_create(
+                student=bill.student,
+                school=school,
+                defaults={
+                    'total_amount': Decimal('0'),
+                    'amount_paid': Decimal('0'),
+                    'balance': Decimal('0'),
+                },
+            )
+            sf.amount_paid += amount_paid
+            _bal = sf.total_amount - sf.amount_paid
+            sf.balance = _bal if _bal > Decimal('0') else Decimal('0')
+            from django.utils import timezone as _tz
+            sf.last_payment_date = _tz.now()
+            if sf.total_amount > 0 and sf.balance <= Decimal('0'):
+                sf.status = 'PAID'
+            elif sf.amount_paid > Decimal('0'):
+                sf.status = 'PARTIAL'
+            sf.save()
+        except Exception as _sf_err:
+            logger.warning(f'StudentFee sync after Paystack verify failed: {_sf_err}')
 
         return Response({
             'success': True,
@@ -1356,10 +1426,33 @@ class TermBillViewSet(viewsets.ModelViewSet):
         dry_run = request.data.get('dry_run', False)
         custom_message = request.data.get('message', '').strip()
 
-        # Build queryset of outstanding bills
+        # Pre-flight: check SMS balance and API key before doing any work
+        if not dry_run:
+            from notifications.sms_service import SmsService as _Svc
+            api_key = _Svc._get_api_key(school)
+            if not api_key:
+                return Response(
+                    {'error': 'Arkesel API key is not configured. Contact your system administrator.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            sms_balance = getattr(school, 'sms_balance', 0)
+            if sms_balance < 1:
+                return Response(
+                    {'error': f'Insufficient SMS credits (balance: {sms_balance}). Please top up in SMS Settings.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # statuses filter — defaults to outstanding (UNPAID + PARTIAL)
+        allowed = {'UNPAID', 'PARTIAL', 'PAID', 'WAIVED'}
+        requested_statuses = request.data.get('statuses', ['UNPAID', 'PARTIAL'])
+        if not isinstance(requested_statuses, list):
+            requested_statuses = ['UNPAID', 'PARTIAL']
+        statuses = [s for s in requested_statuses if s in allowed] or ['UNPAID', 'PARTIAL']
+
+        # Build queryset of bills matching the requested statuses
         qs = TermBill.objects.filter(
             school=school,
-            status__in=['UNPAID', 'PARTIAL'],
+            status__in=statuses,
         ).select_related('student', 'fee_type', 'term')
 
         term_id = request.data.get('term')
@@ -1388,23 +1481,56 @@ class TermBillViewSet(viewsets.ModelViewSet):
         for student_id, bills in student_bills.items():
             student = bills[0].student
             phone = getattr(student, 'guardian_phone', '') or ''
+            total_billed = sum(float(b.amount_billed) for b in bills)
+            total_paid = sum(float(b.amount_paid) for b in bills)
             total_balance = sum(float(b.balance) for b in bills)
-            bill_lines = ', '.join(f'{b.fee_type.name}: GH₵{float(b.balance):,.2f}' for b in bills)
 
             if custom_message:
-                sms_text = custom_message.replace('{student}', student.get_full_name()).replace('{balance}', f'GH₵{total_balance:,.2f}')
+                sms_text = custom_message.replace('{student}', student.get_full_name()).replace('{balance}', f'GH\u20b5{total_balance:,.2f}')
             else:
+                guardian = getattr(student, 'guardian_name', '') or 'Guardian'
+                student_name = student.get_full_name()
+                school_name = school.name
+
+                # Build per-fee breakdown: "Tuition: Billed GH₵500 | Paid GH₵200 | Arrears GH₵300"
+                fee_lines = []
+                for b in bills:
+                    billed = float(b.amount_billed)
+                    paid = float(b.amount_paid)
+                    arrears = float(b.balance)
+                    fee_lines.append(
+                        f'{b.fee_type.name}: Billed GH\u20b5{billed:,.2f} | Paid GH\u20b5{paid:,.2f} | Arrears GH\u20b5{arrears:,.2f}'
+                    )
+                breakdown = ' | '.join(fee_lines)
+
                 sms_text = (
-                    f'Dear {student.guardian_name}, your ward {student.get_full_name()} has outstanding school fees: '
-                    f'{bill_lines}. Total balance: GH₵{total_balance:,.2f}. Please pay at the school. Thank you.'
+                    f'Dear {guardian}, this is a fee reminder from {school_name}.\n'
+                    f'Student: {student_name}\n'
+                    f'{breakdown}\n'
+                    f'Total Arrears: GH\u20b5{total_balance:,.2f}\n'
+                    f'Please visit the school to settle outstanding fees. Thank you.'
                 )
+                # Trim to 320 chars (2 SMS segments) to stay cost-effective
+                if len(sms_text) > 320:
+                    sms_text = sms_text[:317] + '...'
 
             detail = {
                 'student': student.get_full_name(),
                 'student_id': student.student_id,
                 'guardian_phone': phone if phone else None,
+                'total_billed': total_billed,
+                'total_paid': total_paid,
                 'total_balance': total_balance,
-                'bills': [{'fee_type': b.fee_type.name, 'balance': float(b.balance), 'status': b.status} for b in bills],
+                'bills': [
+                    {
+                        'fee_type': b.fee_type.name,
+                        'amount_billed': float(b.amount_billed),
+                        'amount_paid': float(b.amount_paid),
+                        'balance': float(b.balance),
+                        'status': b.status,
+                    }
+                    for b in bills
+                ],
             }
 
             if not phone:
@@ -1428,6 +1554,12 @@ class TermBillViewSet(viewsets.ModelViewSet):
             else:
                 skipped += 1
                 detail['result'] = 'failed'
+                # Capture the likely reason for the failure
+                current_bal = getattr(school, 'sms_balance', 0)
+                if current_bal < 1:
+                    detail['failure_reason'] = 'insufficient_balance'
+                else:
+                    detail['failure_reason'] = 'api_error'
 
             # Also send in-app notification to linked parent user accounts
             try:
@@ -1453,11 +1585,76 @@ class TermBillViewSet(viewsets.ModelViewSet):
 
             details.append(detail)
 
+        # Surface a clear failure_reason if nothing sent
+        failure_reason = None
+        if not dry_run and sent == 0 and skipped > 0:
+            reasons = {d.get('failure_reason') for d in details if d.get('failure_reason')}
+            if 'insufficient_balance' in reasons:
+                failure_reason = f'insufficient SMS credits (balance: {getattr(school, "sms_balance", 0)})'
+            elif 'api_error' in reasons:
+                failure_reason = 'SMS provider rejected the request — check API configuration'
+
+        # Persist SMS log (skip for dry runs)
+        if not dry_run:
+            try:
+                from notifications.models import SmsLog
+                if sent > 0 and skipped == 0:
+                    log_status = 'success'
+                elif sent > 0 and skipped > 0:
+                    log_status = 'partial'
+                elif sent == 0 and skipped > 0:
+                    log_status = 'failed'
+                else:
+                    log_status = 'success'  # all had no-phone, nothing to send
+
+                # Build filters snapshot
+                filters_snapshot = {'statuses': statuses}
+                if class_id:
+                    filters_snapshot['class_id'] = class_id
+                if fee_type_id:
+                    filters_snapshot['fee_type_id'] = fee_type_id
+                if term_id:
+                    filters_snapshot['term_id'] = term_id
+
+                # First 200 chars of the message used
+                sample_msg = ''
+                for d in details:
+                    if d.get('message_preview'):
+                        sample_msg = d['message_preview'][:200]
+                        break
+
+                SmsLog.objects.create(
+                    school=school,
+                    sent_by=request.user,
+                    sms_type='fee_reminder',
+                    status=log_status,
+                    total_recipients=len(student_bills),
+                    sent_count=sent,
+                    failed_count=skipped,
+                    no_phone_count=no_phone,
+                    message_preview=sample_msg or (custom_message[:200] if custom_message else ''),
+                    filters_used=filters_snapshot,
+                    details=details,
+                    failure_reason=failure_reason or '',
+                )
+            except Exception as log_err:
+                logger.warning(f'Failed to write SmsLog: {log_err}')
+
+        # Re-read the final balance from DB to return to the client
+        try:
+            from schools.models import School as _SchoolModel
+            _fresh = _SchoolModel.objects.filter(pk=school.pk).values('sms_balance').first()
+            sms_balance_remaining = _fresh['sms_balance'] if _fresh else getattr(school, 'sms_balance', 0)
+        except Exception:
+            sms_balance_remaining = getattr(school, 'sms_balance', 0)
+
         return Response({
             'dry_run': dry_run,
             'sent': sent,
             'skipped': skipped,
             'no_phone': no_phone,
             'total_students': len(student_bills),
+            'failure_reason': failure_reason,
+            'sms_balance_remaining': sms_balance_remaining,
             'details': details,
         })

@@ -28,6 +28,9 @@ setuptools>=65.0.0
 Pillow>=9.0.0,<11.0.0
 qrcode[pil]==7.4.2
 reportlab==4.0.7
+
+# Web Push Notifications
+pywebpush==1.14.1
 pdfkit==1.0.0
 
 # Excel file processing

@@ -3,8 +3,8 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import get_user_model
-from .models import Notification, SupportTicket
-from .serializers import NotificationSerializer, SupportTicketSerializer
+from .models import Notification, SupportTicket, PushSubscription, SmsLog
+from .serializers import NotificationSerializer, SupportTicketSerializer, SmsLogSerializer
 from django.db.models import Q
 from .email_service import EmailService
 from django.conf import settings
@@ -147,3 +147,60 @@ def announcements_list(request):
         return Response(announcements)
     except Exception as e:
         return Response([], status=200)  # Return empty list instead of error
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def push_subscribe(request):
+    """Save a browser push subscription for the current user."""
+    endpoint = request.data.get('endpoint')
+    p256dh = request.data.get('p256dh')
+    auth = request.data.get('auth')
+    if not endpoint or not p256dh or not auth:
+        return Response({'error': 'endpoint, p256dh and auth are required'}, status=status.HTTP_400_BAD_REQUEST)
+    PushSubscription.objects.update_or_create(
+        endpoint=endpoint,
+        defaults={'user': request.user, 'p256dh': p256dh, 'auth': auth},
+    )
+    return Response({'status': 'subscribed'}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def push_unsubscribe(request):
+    """Remove a push subscription for the current user."""
+    endpoint = request.data.get('endpoint')
+    if not endpoint:
+        return Response({'error': 'endpoint is required'}, status=status.HTTP_400_BAD_REQUEST)
+    deleted, _ = PushSubscription.objects.filter(user=request.user, endpoint=endpoint).delete()
+    return Response({'status': 'unsubscribed', 'deleted': deleted})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def vapid_public_key(request):
+    """Return the VAPID public key so the frontend can subscribe."""
+    key = getattr(settings, 'VAPID_PUBLIC_KEY', '')
+    return Response({'vapidPublicKey': key})
+
+
+class SmsLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only list/detail for SMS dispatch logs scoped to the user's school."""
+    serializer_class = SmsLogSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        role = getattr(user, 'role', '')
+        if role not in ('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'):
+            return SmsLog.objects.none()
+        if not getattr(user, 'school', None):
+            return SmsLog.objects.none()
+        qs = SmsLog.objects.filter(school=user.school)
+        sms_type = self.request.query_params.get('type')
+        if sms_type:
+            qs = qs.filter(sms_type=sms_type)
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return qs
