@@ -189,7 +189,7 @@ else:
     CORS_ALLOW_ALL_ORIGINS = False
     CORS_ALLOWED_ORIGINS = [h.strip() for h in config(
         'CORS_ALLOWED_ORIGINS',
-        default='https://schoolreportfrontend.onrender.com'
+        default='https://schoolreport-frontend.onrender.com'
     ).split(',')]
 
 CORS_ALLOW_CREDENTIALS = True

@@ -75,7 +75,7 @@ def forgot_password(request):
     from django.core.cache import cache
     cache.set(f'pwd_reset_{token}', user.pk, timeout=3600)  # 1 hour
 
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://schoolreportfrontend.onrender.com')
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://schoolreport-frontend.onrender.com')
     reset_url = f'{frontend_url}/reset-password?token={token}'
 
     try:
