@@ -5,13 +5,21 @@ from django.db import transaction
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from schools.models import School, AcademicYear, Term, Subject, GradingScale
-from subscriptions.models import (
-    PLAN_FREE, PLAN_MONTHLY, PLAN_YEARLY, PLAN_DURATIONS, Subscription
-)
 from datetime import date, timedelta
 import re
+import logging
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+PLAN_FREE = 'FREE'
+PLAN_MONTHLY = 'MONTHLY'
+PLAN_YEARLY = 'YEARLY'
+PLAN_DURATIONS = {
+    PLAN_FREE: 14,
+    PLAN_MONTHLY: 30,
+    PLAN_YEARLY: 366,
+}
 
 
 class SchoolBriefSerializer(serializers.ModelSerializer):
@@ -99,6 +107,9 @@ class SchoolRegistrationSerializer(serializers.Serializer):
 
     school_name = serializers.CharField(max_length=255)
     admin_email = serializers.EmailField()
+    address = serializers.CharField(required=False, allow_blank=True, default='')
+    location = serializers.CharField(required=False, allow_blank=True, default='')
+    phone_number = serializers.CharField(required=False, allow_blank=True, default='')
     password = serializers.CharField(write_only=True, min_length=8)
     password_confirm = serializers.CharField(write_only=True, min_length=8)
     levels = serializers.ListField(
@@ -121,86 +132,111 @@ class SchoolRegistrationSerializer(serializers.Serializer):
             raise serializers.ValidationError({"password": "Passwords do not match"})
         if User.objects.filter(email=attrs['admin_email']).exists():
             raise serializers.ValidationError({"admin_email": "Email already in use"})
+        if School.objects.filter(email=attrs['admin_email']).exists():
+            raise serializers.ValidationError({"admin_email": "A school with this email already exists"})
         return attrs
 
-    @transaction.atomic
     def create(self, validated_data):
-        password = validated_data.pop('password')
-        validated_data.pop('password_confirm')
-        school_name = validated_data.pop('school_name')
-        admin_email = validated_data.pop('admin_email')
-        levels = validated_data.pop('levels', [])
-        plan = validated_data.pop('plan', PLAN_FREE)
+        try:
+            password = validated_data.pop('password')
+            validated_data.pop('password_confirm')
+            school_name = validated_data.pop('school_name')
+            admin_email = validated_data.pop('admin_email')
+            address = validated_data.pop('address', '').strip() or 'N/A'
+            location = validated_data.pop('location', '').strip() or 'N/A'
+            phone_number = validated_data.pop('phone_number', '').strip() or 'N/A'
+            levels = validated_data.pop('levels', [])
+            plan = validated_data.pop('plan', PLAN_FREE)
 
-        today = date.today()
-        duration = PLAN_DURATIONS.get(plan, PLAN_DURATIONS[PLAN_FREE])
-        trial_expires = today + timedelta(days=duration)
+            today = date.today()
+            duration = PLAN_DURATIONS.get(plan, PLAN_DURATIONS[PLAN_FREE])
+            trial_expires = today + timedelta(days=duration)
 
-        # Create School
-        school = School.objects.create(
-            name=school_name,
-            email=admin_email,
-            subscription_plan=plan,
-            subscription_expires=trial_expires,
-            is_active=True,
-        )
+            # Create School (CRITICAL - must succeed)
+            school = School.objects.create(
+                name=school_name,
+                address=address,
+                location=location,
+                phone_number=phone_number,
+                email=admin_email,
+                subscription_plan=plan,
+                subscription_expires=trial_expires,
+                is_active=True,
+            )
+            logger.info(f"School created: {school.id} - {school_name}")
 
-        # Create subscription record
-        Subscription.objects.create(
-            school=school,
-            plan_type=plan,
-            start_date=today,
-            end_date=trial_expires,
-            status=Subscription.STATUS_ACTIVE,
-        )
+            # Subscription table writes were intentionally removed.
 
-        # Academic year & term
-        year_span = f"{today.year}/{today.year+1}" if today.month >= 9 else f"{today.year-1}/{today.year}"
-        academic_year = AcademicYear.objects.create(
-            school=school,
-            name=year_span,
-            start_date=date(today.year if today.month >= 9 else today.year - 1, 9, 1),
-            end_date=date(today.year + 1 if today.month >= 9 else today.year, 7, 31),
-            is_current=True
-        )
-        Term.objects.create(
-            academic_year=academic_year,
-            name='FIRST',
-            start_date=academic_year.start_date,
-            end_date=date(academic_year.start_date.year, 12, 15),
-            is_current=True,
-            total_days=0
-        )
+            # Academic year & term (NON-CRITICAL)
+            try:
+                with transaction.atomic():
+                    year_span = f"{today.year}/{today.year+1}" if today.month >= 9 else f"{today.year-1}/{today.year}"
+                    academic_year, _ = AcademicYear.objects.get_or_create(
+                        school=school,
+                        name=year_span,
+                        defaults={
+                            'start_date': date(today.year if today.month >= 9 else today.year - 1, 9, 1),
+                            'end_date': date(today.year + 1 if today.month >= 9 else today.year, 7, 31),
+                            'is_current': True
+                        }
+                    )
+                    Term.objects.get_or_create(
+                        academic_year=academic_year,
+                        name='FIRST',
+                        defaults={
+                            'start_date': academic_year.start_date,
+                            'end_date': date(academic_year.start_date.year, 12, 15),
+                            'is_current': True,
+                            'total_days': 0
+                        }
+                    )
+                logger.info(f"Academic year/term created for school {school.id}")
+            except Exception as year_err:
+                logger.warning(f"Academic year/term creation failed (non-critical): {str(year_err)}")
 
-        # Default grading scale
-        default_grades = [
-            GradingScale(school=school, grade='A', min_score=80, max_score=100, remark='Excellent'),
-            GradingScale(school=school, grade='B', min_score=70, max_score=79, remark='Very Good'),
-            GradingScale(school=school, grade='C', min_score=60, max_score=69, remark='Good'),
-            GradingScale(school=school, grade='D', min_score=50, max_score=59, remark='Average'),
-            GradingScale(school=school, grade='E', min_score=40, max_score=49, remark='Pass'),
-            GradingScale(school=school, grade='F', min_score=0, max_score=39, remark='Fail'),
-        ]
-        GradingScale.objects.bulk_create(default_grades)
+            # Default grading scale (NON-CRITICAL)
+            try:
+                with transaction.atomic():
+                    default_grades = [
+                        GradingScale(school=school, grade='A', min_score=80, max_score=100, remark='Excellent'),
+                        GradingScale(school=school, grade='B', min_score=70, max_score=79, remark='Very Good'),
+                        GradingScale(school=school, grade='C', min_score=60, max_score=69, remark='Good'),
+                        GradingScale(school=school, grade='D', min_score=50, max_score=59, remark='Average'),
+                        GradingScale(school=school, grade='E', min_score=40, max_score=49, remark='Pass'),
+                        GradingScale(school=school, grade='F', min_score=0, max_score=39, remark='Fail'),
+                    ]
+                    GradingScale.objects.bulk_create(default_grades, ignore_conflicts=True)
+                logger.info(f"Grading scales created for school {school.id}")
+            except Exception as grade_err:
+                logger.warning(f"Grading scale creation failed (non-critical): {str(grade_err)}")
 
-        # Default subjects
-        base_subjects = [
-            Subject(name='English Language', code='ENG', category='BOTH'),
-            Subject(name='Mathematics', code='MATH', category='BOTH'),
-            Subject(name='Integrated Science', code='SCI', category='BOTH'),
-            Subject(name='Creative Art', code='ART', category='BOTH'),
-            Subject(name='Computing', code='COMP', category='BOTH'),
-        ]
-        Subject.objects.bulk_create(base_subjects, ignore_conflicts=True)
+            # Default subjects (NON-CRITICAL)
+            try:
+                with transaction.atomic():
+                    base_subjects = [
+                        Subject(name='English Language', code='ENG', category='BOTH'),
+                        Subject(name='Mathematics', code='MATH', category='BOTH'),
+                        Subject(name='Integrated Science', code='SCI', category='BOTH'),
+                        Subject(name='Creative Art', code='ART', category='BOTH'),
+                        Subject(name='Computing', code='COMP', category='BOTH'),
+                    ]
+                    Subject.objects.bulk_create(base_subjects, ignore_conflicts=True)
+                logger.info(f"Default subjects created")
+            except Exception as subj_err:
+                logger.warning(f"Subject creation failed (non-critical): {str(subj_err)}")
 
-        # Create Admin User
-        user = User.objects.create_user(
-            email=admin_email,
-            password=password,
-            first_name=validated_data.get('first_name', 'Admin'),
-            last_name=validated_data.get('last_name', 'User'),
-            role='SCHOOL_ADMIN',
-            school=school
-        )
+            # Create Admin User (CRITICAL)
+            user = User.objects.create_user(
+                email=admin_email,
+                password=password,
+                first_name=validated_data.get('first_name', 'Admin'),
+                last_name=validated_data.get('last_name', 'User'),
+                role='SCHOOL_ADMIN',
+                school=school
+            )
+            logger.info(f"Admin user created: {user.id} - {admin_email}")
 
-        return user
+            return user
+        except Exception as err:
+            logger.error(f"Critical registration error: {str(err)}", exc_info=True)
+            raise

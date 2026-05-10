@@ -9,7 +9,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.core.cache import cache
 from django.contrib.auth.hashers import check_password, make_password
-from django.db import transaction
+from django.db import transaction, IntegrityError
+from django.conf import settings
 from datetime import datetime, timedelta
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
@@ -19,6 +20,7 @@ import time
 import re
 import secrets
 import string
+import traceback
 from typing import Dict, Any
 from .security_middleware import SecurityConfig, ThreatDetector, SessionManager, AuditLogger
 from .security_config import SecuritySettings, SecurityValidator
@@ -700,18 +702,41 @@ class RegisterSchoolView(APIView):
         serializer = SchoolRegistrationSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
-        user = serializer.save()
-        school = user.school
 
-        # Issue tokens
-        token_serializer = CustomTokenObtainPairSerializer(data={'email': user.email, 'password': request.data['password']})
-        token_serializer.is_valid(raise_exception=True)
-        data = token_serializer.validated_data
-        data['school'] = {
-            'id': school.id,
-            'name': school.name,
-            'subscription_plan': school.subscription_plan,
-            'subscription_expires': str(school.subscription_expires) if school.subscription_expires else None,
-        }
-        return Response(data, status=status.HTTP_201_CREATED)
+        try:
+            user = serializer.save()
+            school = user.school
+
+            # Issue tokens
+            token_serializer = CustomTokenObtainPairSerializer(
+                data={'email': user.email, 'password': request.data['password']}
+            )
+            token_serializer.is_valid(raise_exception=True)
+            data = token_serializer.validated_data
+            data['school'] = {
+                'id': school.id,
+                'name': school.name,
+                'subscription_plan': school.subscription_plan,
+                'subscription_expires': str(school.subscription_expires) if school.subscription_expires else None,
+            }
+            return Response(data, status=status.HTTP_201_CREATED)
+        except IntegrityError as e:
+            logger.error(f"IntegrityError during school registration: {str(e)}", exc_info=True)
+            return Response(
+                {'detail': f'Database conflict: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"School registration failed: {str(e)}", exc_info=True)
+            error_trace = traceback.format_exc()
+            logger.error(f"Full traceback: {error_trace}")
+            # Return detailed error for debugging
+            return Response(
+                {
+                    'detail': f'Registration error: {str(e)}',
+                    'error_type': type(e).__name__,
+                    'trace': error_trace if settings.DEBUG else None
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
