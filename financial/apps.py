@@ -1,10 +1,10 @@
 from django.apps import AppConfig
 
 
-class SchoolsConfig(AppConfig):
+class FinancialConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'schools'
+    name = 'financial'
 
     def ready(self):
-        # Load financial audit signal handlers
+        # Load audit signal handlers when the financial app is ready
         from . import signals  # noqa: F401

@@ -263,6 +263,7 @@ class StaffPermissionSerializer(serializers.ModelSerializer):
             'can_collect_fees', 'fee_collection_enabled',
             'collect_fee_type_ids',
             'can_cover_attendance', 'cover_class_ids',
+            'can_manage_finances',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'teacher_name', 'teacher_email']

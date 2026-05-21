@@ -31,6 +31,7 @@ class SchoolBriefSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for the custom User model"""
     school = SchoolBriefSerializer(read_only=True)
+    can_manage_finances = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -41,9 +42,27 @@ class UserSerializer(serializers.ModelSerializer):
             'email',
             'phone_number',   # include if your User model has this field
             'role',           # include if your User model has this field
-            'school'          # include if your User model links to School
+            'school',         # include if your User model links to School
+            'can_manage_finances'
         ]
         read_only_fields = ['id']
+    
+    def get_can_manage_finances(self, obj):
+        """Check if user has financial management permission"""
+        # School admins always have access
+        if obj.role == 'SCHOOL_ADMIN':
+            return True
+        
+        # Check staff permissions for teachers
+        if obj.role == 'TEACHER' and obj.school:
+            from schools.models import StaffPermission
+            try:
+                perm = StaffPermission.objects.get(school=obj.school, teacher=obj)
+                return perm.can_manage_finances
+            except StaffPermission.DoesNotExist:
+                return False
+        
+        return False
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
